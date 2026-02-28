@@ -15,6 +15,7 @@ import * as MediaLibrary from "expo-media-library";
 import { API_BASE, DEMO_USER_ID } from "@/constants/api";
 import SearchBar from "@/components/ui/searchbar";
 import ParallaxScrollView from "@/components/parallax-scroll-view";
+import { IconSymbol } from "@/components/ui/icon-symbol";
 
 const INDEX_LIMIT = 30; // index the N most recent photos on startup
 
@@ -202,6 +203,10 @@ export default function CameraRollScreen() {
                 <Text style={styles.label}>Label 2</Text>
                 <Text style={styles.label}>Label 3</Text>
               </View>
+              <Pressable style={styles.narrateButton}>
+                <IconSymbol size={14} name="speaker.wave.2" color={"#ddd"} />
+                <Text style={styles.narrateButtonText}>Narrate</Text>
+              </Pressable>
             </View>
           </View>
           <Pressable
@@ -253,6 +258,8 @@ const styles = StyleSheet.create({
   },
   labelsContainer: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
   label: { backgroundColor: "#6c63ff", color: "#fff", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, fontSize: 12 },
+  narrateButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 12, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: "#444" },
+  narrateButtonText: { color: "#ddd", fontSize: 14, fontWeight: "600" },
   closeButton: { position: "absolute", top: 40, right: 20, zIndex: 1 },
   closeButtonText: { color: "#fff", fontSize: 32, fontWeight: "bold" },
 });
