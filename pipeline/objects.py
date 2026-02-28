@@ -1,55 +1,39 @@
 """
-Step 2 — Object detection.
-Uses OpenAI Vision to extract structured object list.
-YOLO can be swapped in for offline/faster inference.
+Step 2 — Object detection via YOLOv8 (ultralytics).
+Model weights (~6 MB) are downloaded automatically on first run.
 """
 
-import base64
-import json
-from openai import AsyncOpenAI
-from backend.config import settings
+import asyncio
+import io
+from functools import lru_cache
+from PIL import Image
 from backend.models import DetectedObject
 
-client = AsyncOpenAI(api_key=settings.openai_api_key)
 
-SYSTEM_PROMPT = """You are an object detection assistant.
-Given an image, return a JSON array of detected objects.
-Each item should have:
-- "label": the object name (lowercase)
-- "confidence": your confidence score between 0.0 and 1.0
-
-Include only significant objects (people, animals, vehicles, furniture, food, etc.).
-Respond ONLY with a valid JSON array."""
+@lru_cache(maxsize=1)
+def _get_model():
+    from ultralytics import YOLO
+    return YOLO("yolov8n.pt")
 
 
 async def detect_objects(image_bytes: bytes) -> list[DetectedObject]:
-    b64 = base64.b64encode(image_bytes).decode("utf-8")
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _detect_sync, image_bytes)
 
-    response = await client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
-                    }
-                ],
-            },
-        ],
-        max_tokens=300,
-    )
 
-    raw = response.choices[0].message.content or "[]"
-    try:
-        items = json.loads(raw)
-    except json.JSONDecodeError:
-        return []
+def _detect_sync(image_bytes: bytes) -> list[DetectedObject]:
+    model = _get_model()
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    results = model(img, verbose=False)
 
-    return [
-        DetectedObject(label=item.get("label", ""), confidence=item.get("confidence", 0.0))
-        for item in items
-        if isinstance(item, dict)
-    ]
+    seen: set[str] = set()
+    objects: list[DetectedObject] = []
+    for r in results:
+        for box in r.boxes:
+            label = r.names[int(box.cls[0])]
+            conf = float(box.conf[0])
+            if label not in seen:
+                seen.add(label)
+                objects.append(DetectedObject(label=label, confidence=round(conf, 3)))
+
+    return objects
