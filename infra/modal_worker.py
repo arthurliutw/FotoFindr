@@ -45,11 +45,10 @@ async def process_photo(photo_id: str, user_id: str, storage_url: str) -> dict:
 
     try:
         update_photo_status(photo_id, "processing")
-
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(storage_url)
-        resp.raise_for_status()
-        image_bytes = resp.content
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(storage_url)
+            resp.raise_for_status()
+            image_bytes = resp.content
 
         await run_pipeline(
             photo_id,
