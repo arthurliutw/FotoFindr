@@ -6,11 +6,13 @@ import {
   StyleSheet,
   ActivityIndicator,
   Pressable,
+  Modal,
 } from "react-native";
 import { Image } from "expo-image";
 import * as MediaLibrary from "expo-media-library";
 import { API_BASE, DEMO_USER_ID } from "@/constants/api";
 import SearchBar from "@/components/ui/searchbar";
+import ParallaxScrollView from "@/components/parallax-scroll-view";
 
 const INDEX_LIMIT = 30; // index the N most recent photos on startup
 
@@ -25,6 +27,7 @@ export default function CameraRollScreen() {
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [indexDone, setIndexDone] = useState(0);
   const [indexTotal, setIndexTotal] = useState(0);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   useEffect(() => {
     loadAndIndex();
@@ -141,7 +144,9 @@ export default function CameraRollScreen() {
           keyExtractor={(item) => item.id}
           numColumns={3}
           renderItem={({ item }) => (
-            <Image source={{ uri: item.uri }} style={styles.thumb} />
+            <Pressable onPress={() => setSelectedImage(item.uri)} style={{ flex: 1 / 3 }}>
+              <Image source={{ uri: item.uri }} style={styles.thumb} />
+            </Pressable>
           )}
           contentContainerStyle={styles.grid}
           ListFooterComponent={photos.length > 0 ? (
@@ -154,6 +159,37 @@ export default function CameraRollScreen() {
           ListFooterComponentStyle={{ paddingBottom: 30 }}
         />
       )}
+      <Modal
+        visible={!!selectedImage}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedImage(null)}
+      >
+        <View style={styles.modalContainer}>
+          <Pressable onPress={() => setSelectedImage(null)} style={{ flex: 1, width: "100%" }}>
+            <View style={styles.modalContent}>
+              <Image
+                source={{ uri: selectedImage! }}
+                style={styles.modalImage}
+              />
+              <View style={styles.descriptionSection}>
+                <View style={styles.labelsContainer}>
+                  <Text style={styles.label}>Label 1</Text>
+                  <Text style={styles.label}>Label 2</Text>
+                  <Text style={styles.label}>Label 3</Text>
+                </View>
+              </View>
+            </View>
+          </Pressable>
+          {/* </ParallaxScrollView> */}
+          <Pressable
+            style={styles.closeButton}
+            onPress={() => setSelectedImage(null)}
+          >
+            <Text style={styles.closeButtonText}>✕</Text>
+          </Pressable>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -166,6 +202,33 @@ const styles = StyleSheet.create({
   statusReady: { color: "#4caf50", fontSize: 13, textAlign: "center", marginBottom: 12 },
   empty: { color: "#aaa", textAlign: "center", marginTop: 60, fontSize: 15 },
   grid: { gap: 2 },
-  thumb: { flex: 1 / 3, aspectRatio: 1, margin: 1, borderRadius: 4 },
+  thumb: { aspectRatio: 1, margin: 1, borderRadius: 4 },
   loadMoreButton: { color: "#6c63ff", textAlign: "center", marginTop: 16, fontSize: 14, fontWeight: "600" },
+  modalContainer: { width: "100%", flex: 1, backgroundColor: "rgba(0, 0, 0, 0.9)", justifyContent: "center", alignItems: "center" },
+  fullImage: { width: "100%", height: "100%" },
+  modalContent: {
+    flex: 1,
+    justifyContent: "flex-start",
+    alignItems: "center",
+    width: "100%",
+    paddingVertical: 10,
+    gap: 0
+  },
+
+  modalImage: {
+    flex: 10,
+    width: "100%",
+    resizeMode: "contain",
+  },
+
+  descriptionSection: {
+    flex: 1,
+    width: "100%",
+    padding: 16,
+    backgroundColor: "rgba(0,0,0,0.7)",
+  },
+  labelsContainer: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  label: { backgroundColor: "#6c63ff", color: "#fff", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, fontSize: 12 },
+  closeButton: { position: "absolute", top: 40, right: 20, zIndex: 1 },
+  closeButtonText: { color: "#fff", fontSize: 32, fontWeight: "bold" },
 });
