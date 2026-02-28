@@ -1,28 +1,47 @@
 """
-Database helpers — SQLite for metadata, numpy for vector search.
-No external services needed.
+Database helpers — Snowflake for metadata, numpy for vector similarity search.
 """
 
 import json
-import sqlite3
 import uuid
-from pathlib import Path
 from typing import Optional
 
 import numpy as np
+import snowflake.connector
+from snowflake.connector import DictCursor
 
-DB_PATH = Path("fotofindr.db")
-
-
-# ---------------------------------------------------------------------------
-# Connection
-# ---------------------------------------------------------------------------
+from config import settings
 
 
-def _get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+def _require_snowflake_settings() -> None:
+    required = {
+        "SNOWFLAKE_ACCOUNT": settings.snowflake_account,
+        "SNOWFLAKE_USER": settings.snowflake_user,
+        "SNOWFLAKE_PASSWORD": settings.snowflake_password,
+        "SNOWFLAKE_DATABASE": settings.snowflake_database,
+        "SNOWFLAKE_SCHEMA": settings.snowflake_schema,
+        "SNOWFLAKE_WAREHOUSE": settings.snowflake_warehouse,
+    }
+    missing = [k for k, v in required.items() if not v]
+    if missing:
+        raise RuntimeError(f"Missing Snowflake settings: {', '.join(missing)}")
+
+
+def _get_conn():
+    _require_snowflake_settings()
+    return snowflake.connector.connect(
+        account=settings.snowflake_account,
+        user=settings.snowflake_user,
+        password=settings.snowflake_password,
+        database=settings.snowflake_database,
+        schema=settings.snowflake_schema,
+        warehouse=settings.snowflake_warehouse,
+        role=settings.snowflake_role or None,
+    )
+
+
+def _normalize_row(row: dict) -> dict:
+    return {k.lower(): v for k, v in row.items()}
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -32,54 +51,106 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     return float(np.dot(va, vb) / denom) if denom else 0.0
 
 
-# ---------------------------------------------------------------------------
-# Schema bootstrap
-# ---------------------------------------------------------------------------
-
-SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS photos (
-    id               TEXT PRIMARY KEY,
-    user_id          TEXT NOT NULL,
-    storage_url      TEXT NOT NULL,
-    caption          TEXT,
-    tags             TEXT DEFAULT '[]',
-    detected_objects TEXT DEFAULT '[]',
-    emotions         TEXT DEFAULT '[]',
-    person_ids       TEXT DEFAULT '[]',
-    importance_score REAL DEFAULT 1.0,
-    low_value_flags  TEXT DEFAULT '[]',
-    embedding        TEXT DEFAULT NULL,
-    created_at       TEXT DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS people (
-    id                  TEXT PRIMARY KEY,
-    user_id             TEXT NOT NULL,
-    name                TEXT,
-    embedding_centroid  TEXT DEFAULT NULL,
-    photo_count         INTEGER DEFAULT 0,
-    cover_photo_url     TEXT,
-    created_at          TEXT DEFAULT (datetime('now'))
-);
-"""
+SCHEMA_SQL = [
+    """
+    CREATE TABLE IF NOT EXISTS photos (
+        id STRING PRIMARY KEY,
+        user_id STRING NOT NULL,
+        storage_url STRING NOT NULL,
+        status STRING DEFAULT 'uploaded',
+        modal_call_id STRING,
+        error_message STRING,
+        status_updated_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+        caption STRING,
+        tags STRING DEFAULT '[]',
+        detected_objects STRING DEFAULT '[]',
+        emotions STRING DEFAULT '[]',
+        person_ids STRING DEFAULT '[]',
+        importance_score FLOAT DEFAULT 1.0,
+        low_value_flags STRING DEFAULT '[]',
+        embedding STRING,
+        created_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS people (
+        id STRING PRIMARY KEY,
+        user_id STRING NOT NULL,
+        name STRING,
+        embedding_centroid STRING,
+        photo_count INTEGER DEFAULT 0,
+        cover_photo_url STRING,
+        created_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+    )
+    """,
+    "ALTER TABLE photos ADD COLUMN IF NOT EXISTS status STRING DEFAULT 'uploaded'",
+    "ALTER TABLE photos ADD COLUMN IF NOT EXISTS modal_call_id STRING",
+    "ALTER TABLE photos ADD COLUMN IF NOT EXISTS error_message STRING",
+    "ALTER TABLE photos ADD COLUMN IF NOT EXISTS status_updated_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()",
+]
 
 
 def init_db() -> None:
     with _get_conn() as conn:
-        conn.executescript(SCHEMA_SQL)
+        with conn.cursor() as cur:
+            for stmt in SCHEMA_SQL:
+                cur.execute(stmt)
 
 
-# ---------------------------------------------------------------------------
-# Photos
-# ---------------------------------------------------------------------------
-
-
-def insert_photo(photo_id: str, user_id: str, storage_url: str) -> None:
+def insert_photo(
+    photo_id: str,
+    user_id: str,
+    storage_url: str,
+    status: str = "uploaded",
+    modal_call_id: str | None = None,
+) -> None:
     with _get_conn() as conn:
-        conn.execute(
-            "INSERT OR IGNORE INTO photos (id, user_id, storage_url) VALUES (?, ?, ?)",
-            (photo_id, user_id, storage_url),
-        )
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO photos (id, user_id, storage_url, status, modal_call_id, status_updated_at)
+                SELECT %s, %s, %s, %s, %s, CURRENT_TIMESTAMP()
+                WHERE NOT EXISTS (SELECT 1 FROM photos WHERE id = %s)
+                """,
+                (photo_id, user_id, storage_url, status, modal_call_id, photo_id),
+            )
+
+
+def update_photo_status(
+    photo_id: str,
+    status: str,
+    *,
+    modal_call_id: str | None = None,
+    error_message: str | None = None,
+) -> None:
+    with _get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE photos
+                SET status = %s,
+                    modal_call_id = COALESCE(%s, modal_call_id),
+                    error_message = %s,
+                    status_updated_at = CURRENT_TIMESTAMP()
+                WHERE id = %s
+                """,
+                (status, modal_call_id, error_message, photo_id),
+            )
+
+
+def get_photo_status(photo_id: str) -> dict | None:
+    with _get_conn() as conn:
+        with conn.cursor(DictCursor) as cur:
+            cur.execute(
+                """
+                SELECT id, user_id, status, modal_call_id, error_message, status_updated_at
+                FROM photos
+                WHERE id = %s
+                """,
+                (photo_id,),
+            )
+            row = cur.fetchone()
+    return _normalize_row(row) if row else None
 
 
 def update_photo_pipeline_result(photo_id: str, result: dict) -> None:
@@ -87,35 +158,39 @@ def update_photo_pipeline_result(photo_id: str, result: dict) -> None:
     embedding_json = json.dumps(embedding) if embedding else None
 
     with _get_conn() as conn:
-        conn.execute(
-            """
-            UPDATE photos SET
-                caption          = ?,
-                tags             = ?,
-                detected_objects = ?,
-                emotions         = ?,
-                person_ids       = ?,
-                importance_score = ?,
-                low_value_flags  = ?,
-                embedding        = ?
-            WHERE id = ?
-            """,
-            (
-                result.get("caption"),
-                json.dumps(result.get("tags", [])),
-                result.get("detected_objects", "[]"),
-                result.get("emotions", "[]"),
-                json.dumps(result.get("person_ids", [])),
-                result.get("importance_score", 1.0),
-                json.dumps(result.get("low_value_flags", [])),
-                embedding_json,
-                photo_id,
-            ),
-        )
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE photos SET
+                    caption = %s,
+                    tags = %s,
+                    detected_objects = %s,
+                    emotions = %s,
+                    person_ids = %s,
+                    importance_score = %s,
+                    low_value_flags = %s,
+                    embedding = %s,
+                    status = 'completed',
+                    error_message = NULL,
+                    status_updated_at = CURRENT_TIMESTAMP()
+                WHERE id = %s
+                """,
+                (
+                    result.get("caption"),
+                    json.dumps(result.get("tags", [])),
+                    result.get("detected_objects", "[]"),
+                    result.get("emotions", "[]"),
+                    json.dumps(result.get("person_ids", [])),
+                    result.get("importance_score", 1.0),
+                    json.dumps(result.get("low_value_flags", [])),
+                    embedding_json,
+                    photo_id,
+                ),
+            )
 
 
-def _row_to_dict(row) -> dict:
-    d = dict(row)
+def _row_to_dict(row: dict) -> dict:
+    d = _normalize_row(row)
     for key in ("tags", "detected_objects", "emotions", "person_ids", "low_value_flags"):
         if isinstance(d.get(key), str):
             try:
@@ -132,16 +207,17 @@ def search_photos_by_vector(
     filters: Optional[dict] = None,
     limit: int = 20,
 ) -> list[dict]:
-    """In-memory cosine similarity search with optional metadata filters."""
     with _get_conn() as conn:
-        rows = conn.execute(
-            "SELECT * FROM photos WHERE user_id = ? AND embedding IS NOT NULL",
-            (user_id,),
-        ).fetchall()
+        with conn.cursor(DictCursor) as cur:
+            cur.execute(
+                "SELECT * FROM photos WHERE user_id = %s AND embedding IS NOT NULL",
+                (user_id,),
+            )
+            rows = cur.fetchall()
 
     scored = []
     for row in rows:
-        d = dict(row)
+        d = _normalize_row(row)
         try:
             row_emb = json.loads(d["embedding"])
         except (json.JSONDecodeError, TypeError):
@@ -169,30 +245,34 @@ def search_photos_by_vector(
 
 def get_all_photos_for_user(user_id: str) -> list[dict]:
     with _get_conn() as conn:
-        rows = conn.execute(
-            "SELECT * FROM photos WHERE user_id = ? ORDER BY created_at DESC",
-            (user_id,),
-        ).fetchall()
-    return [_row_to_dict(dict(row)) for row in rows]
-
-
-# ---------------------------------------------------------------------------
-# People / face profiles
-# ---------------------------------------------------------------------------
+        with conn.cursor(DictCursor) as cur:
+            cur.execute(
+                "SELECT * FROM photos WHERE user_id = %s ORDER BY created_at DESC",
+                (user_id,),
+            )
+            rows = cur.fetchall()
+    return [_row_to_dict(row) for row in rows]
 
 
 def get_or_create_person(
     user_id: str, embedding: list[float], threshold: float = 0.75
 ) -> str:
     with _get_conn() as conn:
-        rows = conn.execute(
-            "SELECT id, embedding_centroid FROM people WHERE user_id = ? AND embedding_centroid IS NOT NULL",
-            (user_id,),
-        ).fetchall()
+        with conn.cursor(DictCursor) as cur:
+            cur.execute(
+                """
+                SELECT id, embedding_centroid
+                FROM people
+                WHERE user_id = %s AND embedding_centroid IS NOT NULL
+                """,
+                (user_id,),
+            )
+            rows = cur.fetchall()
 
     best_id = None
     best_sim = 0.0
     for row in rows:
+        row = _normalize_row(row)
         try:
             centroid = json.loads(row["embedding_centroid"])
         except (json.JSONDecodeError, TypeError):
@@ -204,30 +284,40 @@ def get_or_create_person(
 
     if best_sim >= threshold and best_id:
         with _get_conn() as conn:
-            conn.execute(
-                "UPDATE people SET photo_count = photo_count + 1 WHERE id = ?",
-                (best_id,),
-            )
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE people SET photo_count = photo_count + 1 WHERE id = %s",
+                    (best_id,),
+                )
         return best_id
 
     person_id = str(uuid.uuid4())
     with _get_conn() as conn:
-        conn.execute(
-            "INSERT INTO people (id, user_id, embedding_centroid, photo_count) VALUES (?, ?, ?, 1)",
-            (person_id, user_id, json.dumps(embedding)),
-        )
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO people (id, user_id, embedding_centroid, photo_count) VALUES (%s, %s, %s, 1)",
+                (person_id, user_id, json.dumps(embedding)),
+            )
     return person_id
 
 
 def name_person(person_id: str, name: str) -> None:
     with _get_conn() as conn:
-        conn.execute("UPDATE people SET name = ? WHERE id = ?", (name, person_id))
+        with conn.cursor() as cur:
+            cur.execute("UPDATE people SET name = %s WHERE id = %s", (name, person_id))
 
 
 def get_people(user_id: str) -> list[dict]:
     with _get_conn() as conn:
-        rows = conn.execute(
-            "SELECT id, name, photo_count, cover_photo_url FROM people WHERE user_id = ? ORDER BY photo_count DESC",
-            (user_id,),
-        ).fetchall()
-    return [dict(row) for row in rows]
+        with conn.cursor(DictCursor) as cur:
+            cur.execute(
+                """
+                SELECT id, user_id, name, photo_count, cover_photo_url
+                FROM people
+                WHERE user_id = %s
+                ORDER BY photo_count DESC
+                """,
+                (user_id,),
+            )
+            rows = cur.fetchall()
+    return [_normalize_row(row) for row in rows]
