@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from PIL import Image, ExifTags
+import pillow_heif
 import io
 
 from backend.db import (
@@ -28,8 +29,9 @@ from backend.db import (
 )
 import backend.snowflake_db as sf_db
 from search.query import parse_filters
-from pipeline.clip_embed import embed_text_async
-from pipeline.runner import run_pipeline
+
+# from pipeline.clip_embed import embed_text_async
+# from pipeline.runner import run_pipeline
 
 # ── Storage ───────────────────────────────────────────────────────────────────
 
@@ -102,14 +104,22 @@ async def upload_photo(
     save_path = UPLOAD_DIR / f"{photo_id}.jpg"
 
     try:
-        img = Image.open(io.BytesIO(file_bytes))
+        # Detect HEIC/HEIF and convert
+        if file.content_type in [
+            "image/heic",
+            "image/heif",
+        ] or file.filename.lower().endswith((".heic", ".heif")):
+            heif_file = pillow_heif.read_heif(file_bytes)
+            img = Image.frombytes(heif_file.mode, heif_file.size, heif_file.data)
+        else:
+            img = Image.open(io.BytesIO(file_bytes))
 
         # Fix orientation based on EXIF
         try:
             for orientation in ExifTags.TAGS.keys():
                 if ExifTags.TAGS[orientation] == "Orientation":
                     break
-            exif = img._getexif()
+            exif = img.getexif()
             if exif is not None:
                 orientation_value = exif.get(orientation)
                 if orientation_value == 3:
@@ -119,10 +129,9 @@ async def upload_photo(
                 elif orientation_value == 8:
                     img = img.rotate(90, expand=True)
         except Exception:
-            # ignore if EXIF not present
             pass
 
-        # Convert to RGB for JPEG compatibility
+        # Convert to RGB for JPEG
         if img.mode != "RGB":
             img = img.convert("RGB")
 
@@ -132,23 +141,21 @@ async def upload_photo(
             new_height = int(img.height * ratio)
             img = img.resize((max_width, new_height), Image.Resampling.LANCZOS)
 
-        # Save compressed JPEG
+        # Save as JPEG
         img.save(save_path, format="JPEG", quality=quality, optimize=True)
-
         compressed_bytes = save_path.read_bytes()
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Image processing failed: {e}")
 
     storage_url = f"/uploads/{photo_id}.jpg"
-
     insert_photo(photo_id, user_id, storage_url)
     background_tasks.add_task(sf_db.insert_photo, photo_id, device_uri or storage_url, user_id)
 
     # Background AI pipeline
-    background_tasks.add_task(
-        run_pipeline, photo_id, user_id, storage_url, compressed_bytes
-    )
+    # background_tasks.add_task(
+    #     run_pipeline, photo_id, user_id, storage_url, compressed_bytes
+    # )
 
     return {"photo_id": photo_id, "storage_url": storage_url, "message": "Uploaded."}
 
@@ -173,11 +180,13 @@ async def search_photos(req: SearchRequest):
 
     try:
         embedding = await embed_text_async(req.query)
-        photos = search_photos_by_vector(embedding, req.user_id, filters, limit=req.limit)
+        photos = search_photos_by_vector(
+            embedding, req.user_id, filters, limit=req.limit
+        )
     except Exception as e:
         print(f"[search] CLIP error: {e}\n{traceback.format_exc()}")
         try:
-            photos = get_all_photos_for_user(req.user_id)[:req.limit]
+            photos = get_all_photos_for_user(req.user_id)[: req.limit]
         except Exception as e2:
             print(f"[search] fallback error: {e2}\n{traceback.format_exc()}")
             photos = []
