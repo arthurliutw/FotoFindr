@@ -13,6 +13,11 @@ import io
 from functools import lru_cache
 
 from PIL import Image
+try:
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+except ImportError:
+    pass  # HEIC support optional
 
 
 @lru_cache(maxsize=1)

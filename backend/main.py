@@ -1,11 +1,11 @@
 import sys
 import uuid
+import traceback
 from pathlib import Path
 from contextlib import asynccontextmanager
 
 # Allow running from inside backend/ (uvicorn main:app) without PYTHONPATH tricks.
-# Adds the project root (parent of this file's directory) to sys.path so that
-# `backend`, `pipeline`, and `search` packages are all importable.
+# Adds the project root so that `backend`, `pipeline`, and `search` are all importable.
 _project_root = Path(__file__).resolve().parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
@@ -165,8 +165,16 @@ async def search_photos(req: SearchRequest):
                 filters["person_id"] = p["id"]
                 break
 
-    embedding = await embed_text_async(req.query)
-    photos = search_photos_by_vector(embedding, req.user_id, filters, limit=req.limit)
+    try:
+        embedding = await embed_text_async(req.query)
+        photos = search_photos_by_vector(embedding, req.user_id, filters, limit=req.limit)
+    except Exception as e:
+        print(f"[search] CLIP error: {e}\n{traceback.format_exc()}")
+        try:
+            photos = get_all_photos_for_user(req.user_id)[:req.limit]
+        except Exception as e2:
+            print(f"[search] fallback error: {e2}\n{traceback.format_exc()}")
+            photos = []
 
     return {
         "photos": photos,

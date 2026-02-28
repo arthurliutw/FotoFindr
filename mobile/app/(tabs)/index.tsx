@@ -3,15 +3,14 @@ import {
   View,
   Text,
   FlatList,
-  TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-  Alert,
 } from "react-native";
 import { Image } from "expo-image";
 import * as MediaLibrary from "expo-media-library";
-import * as ImagePicker from "expo-image-picker";
 import { API_BASE, DEMO_USER_ID } from "@/constants/api";
+
+const INDEX_LIMIT = 30; // index the N most recent photos on startup
 
 type LocalPhoto = {
   id: string;
@@ -22,13 +21,14 @@ export default function CameraRollScreen() {
   const [photos, setPhotos] = useState<LocalPhoto[]>([]);
   const [loading, setLoading] = useState(true);
   const [permissionDenied, setPermissionDenied] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [indexDone, setIndexDone] = useState(0);
+  const [indexTotal, setIndexTotal] = useState(0);
 
   useEffect(() => {
-    loadCameraRoll();
+    loadAndIndex();
   }, []);
 
-  async function loadCameraRoll() {
+  async function loadAndIndex() {
     const { status } = await MediaLibrary.requestPermissionsAsync();
     if (status !== "granted") {
       setPermissionDenied(true);
@@ -44,59 +44,64 @@ export default function CameraRollScreen() {
 
     setPhotos(assets.map((a) => ({ id: a.id, uri: a.uri })));
     setLoading(false);
+
+    // Auto-index the most recent photos in the background (no user action needed)
+    const toIndex = assets.slice(0, INDEX_LIMIT);
+    setIndexTotal(toIndex.length);
+
+    for (let i = 0; i < toIndex.length; i += 3) {
+      const batch = toIndex.slice(i, i + 3);
+      await Promise.all(batch.map(uploadAsset));
+      setIndexDone((prev) => Math.min(prev + batch.length, toIndex.length));
+    }
   }
 
-  async function pickAndUpload() {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert("Permission required", "Allow photo access to upload photos.");
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsMultipleSelection: true,
-      quality: 0.8,
-    });
-
-    if (result.canceled || !result.assets?.length) return;
-
-    setUploading(true);
-    for (const asset of result.assets) {
+  async function uploadAsset(asset: MediaLibrary.Asset) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      // getAssetInfoAsync resolves ph:// → file:// on iOS; fall back to asset.uri
+      let uri = asset.uri;
       try {
-        const formData = new FormData();
-        formData.append("user_id", DEMO_USER_ID);
-        formData.append("file", {
-          uri: asset.uri,
-          name: asset.fileName ?? "photo.jpg",
-          type: asset.mimeType ?? "image/jpeg",
-        } as any);
-
-        const resp = await fetch(`${API_BASE}/upload/`, {
-          method: "POST",
-          body: formData,
-        });
-        if (!resp.ok) throw new Error(await resp.text());
-      } catch (err: any) {
-        Alert.alert("Upload failed", err.message);
+        const info = await Promise.race([
+          MediaLibrary.getAssetInfoAsync(asset),
+          new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), 3000)),
+        ]);
+        uri = info.localUri ?? asset.uri;
+      } catch {
+        // use asset.uri as-is
       }
+
+      const formData = new FormData();
+      formData.append("user_id", DEMO_USER_ID);
+      formData.append("file", { uri, name: asset.filename || "photo.jpg", type: "image/jpeg" } as any);
+
+      await fetch(`${API_BASE}/upload/`, { method: "POST", body: formData, signal: controller.signal });
+    } catch {
+      // backend offline or timed out — progress still advances
+    } finally {
+      clearTimeout(timeout);
     }
-    setUploading(false);
-    Alert.alert("Done", "Photos sent to AI for indexing.");
   }
+
+  const indexing = indexTotal > 0 && indexDone < indexTotal;
+  const indexReady = indexTotal > 0 && indexDone >= indexTotal;
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>FotoFindr</Text>
-      <Text style={styles.subtitle}>Your AI-powered camera roll</Text>
 
-      <TouchableOpacity style={styles.uploadBtn} onPress={pickAndUpload} disabled={uploading}>
-        {uploading ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.uploadBtnText}>Send to AI for Search</Text>
-        )}
-      </TouchableOpacity>
+      {indexing && (
+        <View style={styles.statusBar}>
+          <ActivityIndicator size="small" color="#6c63ff" />
+          <Text style={styles.statusText}>
+            Indexing for search… {indexDone}/{indexTotal}
+          </Text>
+        </View>
+      )}
+      {indexReady && (
+        <Text style={styles.statusReady}>Ready to search</Text>
+      )}
 
       {loading ? (
         <ActivityIndicator color="#6c63ff" style={{ marginTop: 40 }} />
@@ -123,16 +128,10 @@ export default function CameraRollScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#0a0a0a", paddingTop: 60, paddingHorizontal: 16 },
-  title: { fontSize: 28, fontWeight: "700", color: "#fff", textAlign: "center" },
-  subtitle: { fontSize: 14, color: "#888", textAlign: "center", marginBottom: 20 },
-  uploadBtn: {
-    backgroundColor: "#6c63ff",
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  uploadBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  title: { fontSize: 28, fontWeight: "700", color: "#fff", textAlign: "center", marginBottom: 8 },
+  statusBar: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 12 },
+  statusText: { color: "#6c63ff", fontSize: 13 },
+  statusReady: { color: "#4caf50", fontSize: 13, textAlign: "center", marginBottom: 12 },
   empty: { color: "#aaa", textAlign: "center", marginTop: 60, fontSize: 15 },
   grid: { gap: 2 },
   thumb: { flex: 1 / 3, aspectRatio: 1, margin: 1, borderRadius: 4 },
