@@ -1,7 +1,7 @@
 from uuid import UUID
-from fastapi import APIRouter, HTTPException
-from backend.db import get_people, name_person
-from backend.models import PersonProfile, NamePersonRequest
+from fastapi import APIRouter
+from db import get_people, name_person
+from models import PersonProfile, NamePersonRequest
 
 router = APIRouter()
 

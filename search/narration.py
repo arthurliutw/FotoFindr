@@ -1,11 +1,11 @@
 """
 ElevenLabs voice narration for search results.
-Generates a summary sentence and returns an audio URL.
+Generates a summary sentence and optionally an audio URL.
 """
 
 import httpx
 import uuid
-import boto3
+from pathlib import Path
 from backend.config import settings
 from backend.models import PhotoMetadata
 
@@ -15,8 +15,6 @@ def _build_narration_text(query: str, photos: list[PhotoMetadata]) -> str:
     if count == 0:
         return "I couldn't find any photos matching that description."
 
-    # Try to extract person name from results
-    people_names: list[str] = []
     emotions: list[str] = []
     for photo in photos[:5]:
         for e in photo.emotions:
@@ -24,20 +22,12 @@ def _build_narration_text(query: str, photos: list[PhotoMetadata]) -> str:
 
     dominant_emotion = max(set(emotions), key=emotions.count) if emotions else None
 
-    if count == 1:
-        base = "I found 1 photo"
-    else:
-        base = f"I found {count} photos"
-
+    base = "I found 1 photo" if count == 1 else f"I found {count} photos"
     parts = [base]
     if dominant_emotion and dominant_emotion != "neutral":
         parts.append(f"where you look {dominant_emotion}")
 
-    # Most recent
-    if photos:
-        parts.append("The most recent one was just taken.")
-
-    return " ".join(parts)
+    return " ".join(parts) + "."
 
 
 async def generate_narration(query: str, photos: list[PhotoMetadata]) -> tuple[str, str | None]:
@@ -48,7 +38,7 @@ async def generate_narration(query: str, photos: list[PhotoMetadata]) -> tuple[s
 
     try:
         audio_bytes = await _call_elevenlabs(text)
-        audio_url = await _store_audio(audio_bytes)
+        audio_url = _store_audio_locally(audio_bytes)
         return text, audio_url
     except Exception as exc:
         print(f"[narration] ElevenLabs error: {exc}")
@@ -72,20 +62,9 @@ async def _call_elevenlabs(text: str) -> bytes:
         return resp.content
 
 
-async def _store_audio(audio_bytes: bytes) -> str:
-    key = f"narration/{uuid.uuid4()}.mp3"
-    s3 = boto3.client(
-        "s3",
-        endpoint_url=settings.storage_endpoint_url,
-        aws_access_key_id=settings.storage_access_key,
-        aws_secret_access_key=settings.storage_secret_key,
-        region_name=settings.storage_region,
-    )
-    s3.put_object(
-        Bucket=settings.storage_bucket,
-        Key=key,
-        Body=audio_bytes,
-        ContentType="audio/mpeg",
-        ACL="public-read",
-    )
-    return f"{settings.storage_endpoint_url}/{settings.storage_bucket}/{key}"
+def _store_audio_locally(audio_bytes: bytes) -> str:
+    narration_dir = Path(settings.upload_dir) / "narration"
+    narration_dir.mkdir(parents=True, exist_ok=True)
+    key = f"{uuid.uuid4()}.mp3"
+    (narration_dir / key).write_bytes(audio_bytes)
+    return f"/uploads/narration/{key}"
