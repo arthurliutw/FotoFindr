@@ -27,7 +27,9 @@ image = (
         "pgvector",
         "python-dotenv",
         "scipy",
+        "ultralytics",
     )
+    .run_commands('python -c "from ultralytics import YOLO; YOLO(\'yolov8n.pt\')"')
 )
 
 
@@ -43,7 +45,8 @@ async def process_photo(photo_id: str, user_id: str, storage_url: str) -> dict:
 
     try:
         update_photo_status(photo_id, "processing")
-        async with httpx.AsyncClient() as client:
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(storage_url)
             resp.raise_for_status()
             image_bytes = resp.content
