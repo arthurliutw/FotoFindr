@@ -2,8 +2,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.db import init_db
-from backend.routes import upload, search, profiles
+from db import init_db
+from routes import upload, search, profiles
 
 
 @asynccontextmanager

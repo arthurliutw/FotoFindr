@@ -9,12 +9,13 @@ import uuid
 from typing import Optional
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from backend.config import settings
+from config import settings
 
 
 # ---------------------------------------------------------------------------
 # Connection
 # ---------------------------------------------------------------------------
+
 
 def get_pg_conn():
     return psycopg2.connect(settings.postgres_dsn, cursor_factory=RealDictCursor)
@@ -78,6 +79,7 @@ def init_db():
 # ---------------------------------------------------------------------------
 # Photos
 # ---------------------------------------------------------------------------
+
 
 def insert_photo(photo_id: str, user_id: str, storage_url: str) -> None:
     sql = """
@@ -150,7 +152,10 @@ def search_photos_by_vector(
 # People / face profiles
 # ---------------------------------------------------------------------------
 
-def get_or_create_person(user_id: str, embedding: list[float], threshold: float = 0.75) -> str:
+
+def get_or_create_person(
+    user_id: str, embedding: list[float], threshold: float = 0.75
+) -> str:
     """
     Find the closest existing person cluster for this face embedding.
     If similarity is above threshold, return that person's ID.
