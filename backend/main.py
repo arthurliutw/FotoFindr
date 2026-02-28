@@ -42,7 +42,7 @@ from backend.db import (
     get_people,
     name_person,
 )
-import backend.local_test_db as sf_db  # swap back to snowflake_db when ready
+import backend.snowflake_db as sf_db
 from search.query import parse_filters
 from pipeline.objects import detect_objects
 from backend.pipeline.faces import get_face_emotions
