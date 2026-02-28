@@ -27,7 +27,7 @@ export default function CameraRollScreen() {
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [indexDone, setIndexDone] = useState(0);
   const [indexTotal, setIndexTotal] = useState(0);
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [stage, setStage] = useState<"idle" | "clearing" | "uploading" | "processing" | "ready">("idle");
 
   useEffect(() => {
     loadAndIndex();
@@ -50,7 +50,14 @@ export default function CameraRollScreen() {
     setPhotos(assets.map((a) => ({ id: a.id, uri: a.uri })));
     setLoading(false);
 
-    // Auto-index the most recent photos in the background (no user action needed)
+    // 1. Clear old Snowflake data for this user before re-uploading
+    setStage("clearing");
+    try {
+      await fetch(`${API_BASE}/clear/${DEMO_USER_ID}`, { method: "POST" });
+    } catch { /* backend offline — continue anyway */ }
+
+    // 2. Upload the most recent photos
+    setStage("uploading");
     const toIndex = assets.slice(0, INDEX_LIMIT);
     setIndexTotal(toIndex.length);
 
@@ -59,6 +66,14 @@ export default function CameraRollScreen() {
       await Promise.all(batch.map(uploadAsset));
       setIndexDone((prev) => Math.min(prev + batch.length, toIndex.length));
     }
+
+    // 3. Trigger AI pipeline on all uploaded photos
+    setStage("processing");
+    try {
+      await fetch(`${API_BASE}/reprocess/${DEMO_USER_ID}`, { method: "POST" });
+    } catch { /* ignore */ }
+
+    setStage("ready");
   }
 
   async function loadMore() {
@@ -111,23 +126,24 @@ export default function CameraRollScreen() {
     }
   }
 
-  const indexing = indexTotal > 0 && indexDone < indexTotal;
-  const indexReady = indexTotal > 0 && indexDone >= indexTotal;
+  const statusLabel =
+    stage === "clearing" ? "Clearing old data…" :
+      stage === "uploading" ? `Uploading… ${indexDone}/${indexTotal}` :
+        stage === "processing" ? "Running AI pipeline…" :
+          stage === "ready" ? "Ready to search" : null;
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>FotoFindr</Text>
       <SearchBar />
-      {indexing && (
+      {stage !== "idle" && stage !== "ready" && statusLabel && (
         <View style={styles.statusBar}>
           <ActivityIndicator size="small" color="#6c63ff" />
-          <Text style={styles.statusText}>
-            Indexing for search… {indexDone}/{indexTotal}
-          </Text>
+          <Text style={styles.statusText}>{statusLabel}</Text>
         </View>
       )}
-      {indexReady && (
-        <Text style={styles.statusReady}>Ready to search</Text>
+      {stage === "ready" && (
+        <Text style={styles.statusReady}>{statusLabel}</Text>
       )}
 
       {loading ? (

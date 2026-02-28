@@ -54,14 +54,39 @@ from backend.pipeline.faces import get_face_emotions
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
+DEMO_USER_ID = "00000000-0000-0000-0000-000000000001"
+
 
 # ── App ───────────────────────────────────────────────────────────────────────
+
+
+async def _startup_clear() -> None:
+    """On server start: clear Snowflake then repopulate from existing uploads."""
+    loop = asyncio.get_running_loop()
+
+    # Clear Snowflake
+    try:
+        await loop.run_in_executor(None, sf_db.clear_photos, DEMO_USER_ID)
+        print("[startup] Snowflake cleared for demo user.")
+    except Exception as e:
+        print(f"[startup] Snowflake clear failed (non-fatal): {e}")
+
+    # Repopulate from every photo already in SQLite + uploads folder
+    photos = get_all_photos_for_user(DEMO_USER_ID)
+    queued = 0
+    for photo in photos:
+        image_path = UPLOAD_DIR / f"{photo['id']}.jpg"
+        if image_path.exists():
+            asyncio.create_task(_run_ai_pipeline(photo["id"], image_path, photo))
+            queued += 1
+    print(f"[startup] Queued {queued}/{len(photos)} photos for AI pipeline.")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
     sf_db.init_schema()
+    asyncio.create_task(_startup_clear())
     yield
 
 
@@ -93,11 +118,11 @@ async def _run_ai_pipeline(photo_id: str, image_path: Path, photo_meta: dict | N
         print(f"[pipeline] could not read {image_path}: {e}")
         return
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     yolo_result, deepface_result = await asyncio.gather(
         detect_objects(image_bytes),
-        loop.run_in_executor(None, get_face_emotions, str(image_path)),
+        loop.run_in_executor(None, get_face_emotions, str(image_path.resolve())),
         return_exceptions=True,
     )
 
@@ -135,7 +160,7 @@ async def _run_ai_pipeline(photo_id: str, image_path: Path, photo_meta: dict | N
     # Upsert to Snowflake — inserts the row if it doesn't exist yet, otherwise updates it.
     filename = meta.get("storage_url", f"/uploads/{photo_id}.jpg")
     try:
-        await loop.run_in_executor(None, sf_db.upsert_photo, photo_id, filename, result)
+        await loop.run_in_executor(None, sf_db.upsert_photo, photo_id, filename, result)  # type: ignore[arg-type]
     except Exception as e:
         print(f"[pipeline] snowflake upsert failed for {photo_id}: {e}")
 
@@ -319,6 +344,14 @@ def list_profiles(user_id: str):
 def name_person_endpoint(person_id: str, body: NameRequest):
     name_person(person_id, body.name.strip())
     return {"ok": True, "person_id": person_id, "name": body.name.strip()}
+
+
+@app.post("/clear/{user_id}")
+async def clear_user_photos(user_id: str):
+    """Delete all Snowflake rows for a user. Called by mobile app before re-uploading."""
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, sf_db.clear_photos, user_id)
+    return {"ok": True, "user_id": user_id}
 
 
 @app.post("/reprocess/{user_id}")
