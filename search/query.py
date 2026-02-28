@@ -13,11 +13,18 @@ EMOTION_WORDS = {
     "neutral": ["neutral", "calm", "serious"],
 }
 
-_STOPWORDS = {
-    "me", "i", "my", "myself", "in", "a", "an", "the", "with", "at", "on",
-    "of", "and", "or", "is", "are", "was", "were", "wearing", "holding",
-    "looking", "where", "who", "that", "this", "to", "for", "from", "by",
-    "photo", "photos", "picture", "pictures", "image", "images", "show",
+# Only filter by labels YOLO (COCO) actually detects — ignore everything else
+# and let CLIP handle colour/clothing/mood naturally.
+_YOLO_CLASSES = {
+    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train",
+    "truck", "boat", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
+    "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag",
+    "tie", "suitcase", "frisbee", "skis", "snowboard", "kite", "skateboard",
+    "surfboard", "bottle", "cup", "fork", "knife", "spoon", "bowl", "banana",
+    "apple", "sandwich", "orange", "broccoli", "carrot", "pizza", "donut",
+    "cake", "chair", "couch", "bed", "toilet", "tv", "laptop", "mouse",
+    "remote", "keyboard", "phone", "microwave", "oven", "toaster", "sink",
+    "refrigerator", "book", "clock", "vase", "scissors", "toothbrush",
 }
 
 
@@ -40,9 +47,10 @@ def parse_filters(query: str) -> dict:
             filters["emotion"] = emotion
             break
 
-    # --- Object keywords (anything not a stopword, length > 2) ---
+    # --- Object keywords: only YOLO-detectable COCO classes ---
+    # Clothing/colours/moods are handled by CLIP similarity, not this filter.
     words = re.findall(r"\b[a-z]+\b", q)
-    obj_keywords = [w for w in words if w not in _STOPWORDS and len(w) > 2]
+    obj_keywords = [w for w in words if w in _YOLO_CLASSES]
     if obj_keywords:
         filters["objects"] = obj_keywords
 

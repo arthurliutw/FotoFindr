@@ -168,12 +168,14 @@ def search_photos_by_vector(
                 if filters["person_id"] not in pids:
                     continue
 
-            # Filter: at least one object keyword must match a detected object label
+            # Filter: at least one object keyword must match a detected object label.
+            # If a photo has no YOLO data yet (empty list), skip the filter and let
+            # CLIP similarity handle ranking instead.
             if filters.get("objects"):
                 obj_raw = d.get("detected_objects", "[]")
                 objs = json.loads(obj_raw) if isinstance(obj_raw, str) else obj_raw
                 obj_labels = {o.get("label", "").lower() for o in objs if isinstance(o, dict)}
-                if not any(kw in obj_labels for kw in filters["objects"]):
+                if obj_labels and not any(kw in obj_labels for kw in filters["objects"]):
                     continue
 
             # Filter: emotion

@@ -15,3 +15,4 @@ psycopg[binary]
 ultralytics>=8.0,<9
 pillow==10.4.0
 open-clip-torch
+pillow-heif
