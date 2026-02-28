@@ -6,6 +6,7 @@ Called as a FastAPI BackgroundTask after upload.
 import asyncio
 import json
 from backend.db import update_photo_pipeline_result
+import backend.snowflake_db as sf_db
 from backend.models import PipelineResult
 from pipeline.caption import get_caption_and_tags
 from pipeline.yolo_objects import detect_objects
@@ -52,7 +53,7 @@ async def run_pipeline(photo_id: str, user_id: str, storage_url: str, image_byte
             low_value_flags=flags,
         )
 
-        update_photo_pipeline_result(photo_id, {
+        pipeline_data = {
             "caption": result.caption,
             "tags": result.tags,
             "detected_objects": json.dumps([o.model_dump() for o in result.detected_objects]),
@@ -61,7 +62,10 @@ async def run_pipeline(photo_id: str, user_id: str, storage_url: str, image_byte
             "importance_score": result.importance_score,
             "low_value_flags": result.low_value_flags,
             "embedding": embedding,
-        })
+        }
+        update_photo_pipeline_result(photo_id, pipeline_data)
+        # Mirror to Snowflake in a thread (sync connector)
+        await asyncio.to_thread(sf_db.update_photo_pipeline_result, photo_id, pipeline_data)
 
     except Exception as exc:
         # Don't crash the server — log and move on

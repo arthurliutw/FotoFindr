@@ -26,6 +26,7 @@ from backend.db import (
     get_people,
     name_person,
 )
+import backend.snowflake_db as sf_db
 from search.query import parse_filters
 from pipeline.clip_embed import embed_text_async
 from pipeline.runner import run_pipeline
@@ -42,6 +43,9 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    # Snowflake schema init runs in a thread (sync connector)
+    import asyncio
+    asyncio.get_event_loop().run_in_executor(None, sf_db.init_schema)
     yield
 
 
@@ -83,6 +87,7 @@ async def upload_photo(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     user_id: str = Form(...),
+    device_uri: str = Form(default=""),  # original on-device URI (ph://, content://, …)
     max_width: int = 1080,  # max width for resizing
     quality: int = 85,  # JPEG quality
 ):
@@ -138,6 +143,7 @@ async def upload_photo(
     storage_url = f"/uploads/{photo_id}.jpg"
 
     insert_photo(photo_id, user_id, storage_url)
+    background_tasks.add_task(sf_db.insert_photo, photo_id, device_uri or storage_url, user_id)
 
     # Background AI pipeline
     background_tasks.add_task(

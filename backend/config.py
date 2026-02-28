@@ -16,6 +16,14 @@ class Settings(BaseSettings):
     elevenlabs_api_key: str = ""
     elevenlabs_voice_id: str = "EXAVITQu4vr4xnSDxMaL"
 
+    # Snowflake (optional — mirrors metadata for cloud queries/demo)
+    snowflake_account: str = ""
+    snowflake_user: str = ""
+    snowflake_password: str = ""
+    snowflake_database: str = "FOTOFINDR"
+    snowflake_schema: str = "PUBLIC"
+    snowflake_warehouse: str = "COMPUTE_WH"
+
     # App
     max_upload_size_mb: int = 20
     env: str = "development"

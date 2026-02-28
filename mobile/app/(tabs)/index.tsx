@@ -74,6 +74,7 @@ export default function CameraRollScreen() {
 
       const formData = new FormData();
       formData.append("user_id", DEMO_USER_ID);
+      formData.append("device_uri", asset.uri);  // on-device reference stored in Snowflake
       formData.append("file", { uri, name: asset.filename || "photo.jpg", type: "image/jpeg" } as any);
 
       await fetch(`${API_BASE}/upload/`, { method: "POST", body: formData, signal: controller.signal });
