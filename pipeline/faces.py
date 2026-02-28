@@ -1,30 +1,26 @@
 """
 Step 4 — Face detection + embedding generation.
-Uses MediaPipe for detection, OpenAI for embeddings.
+Uses MediaPipe for detection, Gemini for description + embedding.
 """
 
+import asyncio
 import io
 import numpy as np
 from PIL import Image
-from openai import AsyncOpenAI
+from google import genai
 from backend.config import settings
 from backend.db import get_or_create_person
 
-client = AsyncOpenAI(api_key=settings.openai_api_key)
+_client = genai.Client(api_key=settings.gemini_api_key)
 
 
 def _detect_faces_mediapipe(image_bytes: bytes) -> list[bytes]:
-    """
-    Returns a list of cropped face image bytes.
-    Requires: pip install mediapipe
-    """
     try:
         import mediapipe as mp
     except ImportError:
         return []
 
     mp_face = mp.solutions.face_detection
-
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     img_array = np.array(img)
     h, w = img_array.shape[:2]
@@ -51,44 +47,25 @@ def _detect_faces_mediapipe(image_bytes: bytes) -> list[bytes]:
 
 
 async def _embed_face(face_bytes: bytes) -> list[float]:
-    """
-    Generate a text embedding from a face description (vision → text → embed).
-    In production, swap for a dedicated face embedding model.
-    """
-    import base64
+    from google.genai import types
 
-    b64 = base64.b64encode(face_bytes).decode("utf-8")
-    # Describe the face first
-    desc_resp = await client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "Describe the face features in this image in 1-2 sentences for identification purposes."},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
-                ],
-            }
-        ],
-        max_tokens=100,
+    image_part = types.Part.from_bytes(data=face_bytes, mime_type="image/jpeg")
+    desc_response = await asyncio.to_thread(
+        _client.models.generate_content,
+        model="gemini-1.5-flash",
+        contents=["Describe the face features in 1-2 sentences for identification.", image_part],
     )
-    description = desc_resp.choices[0].message.content or ""
+    description = desc_response.text or "a person"
 
-    # Embed the description
-    embed_resp = await client.embeddings.create(
-        model="text-embedding-3-small",
-        input=description,
+    embed_response = await asyncio.to_thread(
+        _client.models.embed_content,
+        model="models/text-embedding-004",
+        contents=description,
     )
-    return embed_resp.data[0].embedding
+    return embed_response.embeddings[0].values
 
 
-async def detect_and_cluster_faces(
-    image_bytes: bytes, user_id: str
-) -> list[str]:
-    """
-    Detect faces, embed each, cluster into person profiles.
-    Returns list of person_ids found in this image.
-    """
+async def detect_and_cluster_faces(image_bytes: bytes, user_id: str) -> list[str]:
     face_crops = _detect_faces_mediapipe(image_bytes)
     if not face_crops:
         return []

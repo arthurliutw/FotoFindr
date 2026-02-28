@@ -1,17 +1,19 @@
 """
-Text → vector embedding via OpenAI text-embedding-3-small.
-Used for both photo indexing and query embedding.
+Text → vector embedding via Gemini text-embedding-004 (768-dim).
 """
 
-from openai import AsyncOpenAI
+import asyncio
+from google import genai
 from backend.config import settings
 
-client = AsyncOpenAI(api_key=settings.openai_api_key)
-
-EMBED_MODEL = "text-embedding-3-small"
+_client = genai.Client(api_key=settings.gemini_api_key)
 
 
 async def embed_text(text: str) -> list[float]:
     text = text.strip().replace("\n", " ")
-    response = await client.embeddings.create(model=EMBED_MODEL, input=text)
-    return response.data[0].embedding
+    response = await asyncio.to_thread(
+        _client.models.embed_content,
+        model="models/text-embedding-004",
+        contents=text,
+    )
+    return response.embeddings[0].values

@@ -1,98 +1,115 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import React, { useState } from "react";
+import {
+  View,
+  Text,
+  FlatList,
+  Image,
+  TouchableOpacity,
+  StyleSheet,
+  ActivityIndicator,
+  Alert,
+} from "react-native";
+import * as ImagePicker from "expo-image-picker";
+import { API_BASE, DEMO_USER_ID } from "@/constants/api";
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+type UploadedPhoto = {
+  photo_id: string;
+  storage_url: string;
+};
 
-export default function HomeScreen() {
+export default function UploadScreen() {
+  const [photos, setPhotos] = useState<UploadedPhoto[]>([]);
+  const [uploading, setUploading] = useState(false);
+
+  async function pickAndUpload() {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert("Permission required", "Allow photo access to upload photos.");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsMultipleSelection: true,
+      quality: 0.8,
+    });
+
+    if (result.canceled || !result.assets?.length) return;
+
+    setUploading(true);
+    for (const asset of result.assets) {
+      try {
+        const formData = new FormData();
+        formData.append("user_id", DEMO_USER_ID);
+        formData.append("file", {
+          uri: asset.uri,
+          name: asset.fileName ?? "photo.jpg",
+          type: asset.mimeType ?? "image/jpeg",
+        } as any);
+
+        const resp = await fetch(`${API_BASE}/upload/`, {
+          method: "POST",
+          body: formData,
+        });
+        if (!resp.ok) throw new Error(await resp.text());
+        const data = await resp.json();
+        setPhotos((prev) => [{ photo_id: data.photo_id, storage_url: data.storage_url }, ...prev]);
+      } catch (err: any) {
+        Alert.alert("Upload failed", err.message);
+      }
+    }
+    setUploading(false);
+  }
+
+  function getImageUrl(url: string) {
+    // url is like /uploads/xxx.jpg — prepend base
+    if (url.startsWith("http")) return url;
+    return `${API_BASE}${url}`;
+  }
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+    <View style={styles.container}>
+      <Text style={styles.title}>FotoFindr</Text>
+      <Text style={styles.subtitle}>Your AI-powered camera roll</Text>
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+      <TouchableOpacity style={styles.uploadBtn} onPress={pickAndUpload} disabled={uploading}>
+        {uploading ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <Text style={styles.uploadBtnText}>+ Upload Photos</Text>
+        )}
+      </TouchableOpacity>
+
+      {photos.length === 0 ? (
+        <Text style={styles.empty}>Upload photos to get started.</Text>
+      ) : (
+        <FlatList
+          data={photos}
+          keyExtractor={(item) => item.photo_id}
+          numColumns={3}
+          renderItem={({ item }) => (
+            <Image source={{ uri: getImageUrl(item.storage_url) }} style={styles.thumb} />
+          )}
+          contentContainerStyle={styles.grid}
+        />
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  container: { flex: 1, backgroundColor: "#0a0a0a", paddingTop: 60, paddingHorizontal: 16 },
+  title: { fontSize: 28, fontWeight: "700", color: "#fff", textAlign: "center" },
+  subtitle: { fontSize: 14, color: "#888", textAlign: "center", marginBottom: 20 },
+  uploadBtn: {
+    backgroundColor: "#6c63ff",
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: "center",
+    marginBottom: 20,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-  },
+  uploadBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  empty: { color: "#555", textAlign: "center", marginTop: 60, fontSize: 15 },
+  grid: { gap: 2 },
+  thumb: { flex: 1 / 3, aspectRatio: 1, margin: 1, borderRadius: 4 },
 });
