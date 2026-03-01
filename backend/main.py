@@ -4,17 +4,25 @@ import json
 import asyncio
 import traceback
 import numpy as np
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from sqlalchemy import create_engine
+
+from search import find_matches
 
 
 class _NumpyEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, np.floating):
-            return float(obj)
-        if isinstance(obj, np.integer):
-            return int(obj)
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        return super().default(obj)
+    def default(self, o):
+        if isinstance(o, np.floating):
+            return float(o)
+        if isinstance(o, np.integer):
+            return int(o)
+        if isinstance(o, np.ndarray):
+            return o.tolist()
+        return super().default(o)
+
+
 from pathlib import Path
 from contextlib import asynccontextmanager
 
@@ -33,7 +41,7 @@ from PIL import Image, ExifTags
 import pillow_heif
 import io
 
-from backend.db import (
+from db import (
     init_db,
     insert_photo,
     update_photo_pipeline_result,
@@ -43,12 +51,12 @@ from backend.db import (
     name_person,
     clear_user_photos,
 )
-import backend.snowflake_db as sf_db
-from search.query import parse_filters
+import snowflake_db as sf_db
 from pipeline.objects import detect_objects
 from backend.pipeline.faces import get_face_emotions
+from config import settings
 
-# from pipeline.clip_embed import embed_text_async
+import snowflake.connector
 
 # ── Storage ───────────────────────────────────────────────────────────────────
 
@@ -83,7 +91,9 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 # ── AI pipeline ───────────────────────────────────────────────────────────────
 
 
-async def _run_ai_pipeline(photo_id: str, image_path: Path, photo_meta: dict | None = None) -> None:
+async def _run_ai_pipeline(
+    photo_id: str, image_path: Path, photo_meta: dict | None = None
+) -> None:
     """Run YOLO + DeepFace on the saved JPEG and persist results to both DBs.
 
     photo_meta: existing SQLite record (user_id, storage_url, caption, tags, …).
@@ -109,25 +119,32 @@ async def _run_ai_pipeline(photo_id: str, image_path: Path, photo_meta: dict | N
         print(f"[pipeline] yolo failed for {photo_id}: {yolo_result}")
         yolo_json = "[]"
     else:
-        yolo_json = json.dumps([{"label": o.label, "confidence": o.confidence} for o in yolo_result])
+        yolo_json = json.dumps(
+            [{"label": o.label, "confidence": o.confidence} for o in yolo_result]
+        )
 
     # Serialize DeepFace
-    if isinstance(deepface_result, Exception) or (isinstance(deepface_result, dict) and "error" in deepface_result):
+    if isinstance(deepface_result, Exception) or (
+        isinstance(deepface_result, dict) and "error" in deepface_result
+    ):
         print(f"[pipeline] deepface failed for {photo_id}: {deepface_result}")
         deepface_json = "[]"
     else:
-        deepface_json = json.dumps(deepface_result if isinstance(deepface_result, list) else [deepface_result], cls=_NumpyEncoder)
+        deepface_json = json.dumps(
+            deepface_result if isinstance(deepface_result, list) else [deepface_result],
+            cls=_NumpyEncoder,
+        )
 
     meta = photo_meta or {}
     result = {
-        "detected_objects":  yolo_json,
-        "emotions":          deepface_json,
-        "user_id":           meta.get("user_id", ""),
-        "caption":           meta.get("caption"),
-        "tags":              meta.get("tags", []),
-        "importance_score":  meta.get("importance_score", 1.0),
-        "low_value_flags":   meta.get("low_value_flags", []),
-        "person_ids":        meta.get("person_ids", []),
+        "detected_objects": yolo_json,
+        "emotions": deepface_json,
+        "user_id": meta.get("user_id", ""),
+        "caption": meta.get("caption"),
+        "tags": meta.get("tags", []),
+        "importance_score": meta.get("importance_score", 1.0),
+        "low_value_flags": meta.get("low_value_flags", []),
+        "person_ids": meta.get("person_ids", []),
     }
 
     try:
@@ -159,6 +176,21 @@ class NameRequest(BaseModel):
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 
+conn = snowflake.connector.connect(
+    account=settings.snowflake_account.replace("/", "-"),
+    user=settings.snowflake_user,
+    password=settings.snowflake_password,
+    database=settings.snowflake_database,
+    schema=settings.snowflake_schema,
+    warehouse=settings.snowflake_warehouse,
+)
+
+engine = create_engine(
+    f"snowflake://{settings.snowflake_account.replace('/', '-')}.snowflakecomputing.com",
+    creator=lambda: conn,
+)
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -167,21 +199,9 @@ def health():
 @app.get("/test-snowflake")
 def test_snowflake():
     try:
-        import snowflake.connector
-        from backend.config import settings
-        conn = snowflake.connector.connect(
-            account=settings.snowflake_account.replace("/", "-"),
-            user=settings.snowflake_user,
-            password=settings.snowflake_password,
-            database=settings.snowflake_database,
-            schema=settings.snowflake_schema,
-            warehouse=settings.snowflake_warehouse,
-        )
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM photos")
-        count = cur.fetchone()[0]
-        conn.close()
-        return {"status": "ok", "rows_in_photos": count}
+        with engine.connect() as conn:
+            result = conn.execute("SELECT COUNT(*) FROM photos")
+        return {"status": "ok", "rows_in_photos": result.fetchone()[0]}
     except Exception as e:
         return {"status": "error", "detail": str(e)}
 
@@ -257,41 +277,14 @@ async def upload_photo(
 
 @app.post("/search/")
 async def search_photos(req: SearchRequest):
-    filters = parse_filters(req.query)
+    query = req.query.strip()
+    user_id = req.user_id.strip()
+    limit = req.limit
 
-    # Resolve "me" → most-photographed face cluster for this user
-    if filters.pop("wants_me", False):
-        people = get_people(req.user_id)
-        if people:
-            filters["person_id"] = people[0]["id"]
+    matches = find_matches(query, objects, emotions)
+    print(f"Matches for query '{query}': {matches}")
 
-    # Resolve named person → person_id by name match
-    person_name = filters.pop("person_name", None)
-    if person_name:
-        for p in get_people(req.user_id):
-            if p.get("name", "").lower() == person_name.lower():
-                filters["person_id"] = p["id"]
-                break
-
-    try:
-        embedding = await embed_text_async(req.query)
-        photos = search_photos_by_vector(
-            embedding, req.user_id, filters, limit=req.limit
-        )
-    except Exception as e:
-        print(f"[search] CLIP error: {e}\n{traceback.format_exc()}")
-        try:
-            photos = get_all_photos_for_user(req.user_id)[: req.limit]
-        except Exception as e2:
-            print(f"[search] fallback error: {e2}\n{traceback.format_exc()}")
-            photos = []
-
-    return {
-        "photos": photos,
-        "narration_text": f"Found {len(photos)} photos matching '{req.query}'.",
-        "narration": None,
-        "total": len(photos),
-    }
+    return {"ok": True, "received": req.query}
 
 
 @app.get("/photos/{user_id}")
@@ -356,3 +349,20 @@ async def reprocess_all(user_id: str, background_tasks: BackgroundTasks):
             queued += 1
     print(f"[reprocess] Queued {queued}/{len(photos)} photos for user {user_id}")
     return {"queued": queued, "total": len(photos)}
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    messages = []
+
+    for err in exc.errors():
+        field = err["loc"][-1]
+        messages.append(f"{field}: {err['msg']}")
+
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": "Validation failed, maybe you have a typo or missing field?",
+            "message": ", ".join(messages),
+        },
+    )

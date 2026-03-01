@@ -60,7 +60,7 @@ Output:
 
 
 # Example usage
-if __name__ == "__main__":
-    objects = ["bird", "clock", "cat"]
-    emotions = ["fear", "joy", "anger"]
-    print(find_matches("A happy cat on a bird feeder", objects, emotions))
+# if __name__ == "__main__":
+#     objects = ["bird", "clock", "cat"]
+#     emotions = ["fear", "joy", "anger"]
+#     print(find_matches("A happy cat on a bird feeder", objects, emotions))

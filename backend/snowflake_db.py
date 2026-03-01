@@ -17,7 +17,7 @@ import json
 
 import snowflake.connector
 
-from backend.config import settings
+from config import settings
 
 
 # ---------------------------------------------------------------------------
@@ -79,15 +79,17 @@ def upsert_photo(photo_id: str, filename: str, result: dict) -> None:
     Carries all metadata (user_id, caption, tags, …) plus YOLO and DeepFace data.
     """
     try:
-        metadata = json.dumps({
-            "user_id":          result.get("user_id", ""),
-            "caption":          result.get("caption"),
-            "tags":             result.get("tags", []),
-            "importance_score": result.get("importance_score", 1.0),
-            "low_value_flags":  result.get("low_value_flags", []),
-            "person_ids":       result.get("person_ids", []),
-        })
-        yolo_raw     = result.get("detected_objects", "[]")
+        metadata = json.dumps(
+            {
+                "user_id": result.get("user_id", ""),
+                "caption": result.get("caption"),
+                "tags": result.get("tags", []),
+                "importance_score": result.get("importance_score", 1.0),
+                "low_value_flags": result.get("low_value_flags", []),
+                "person_ids": result.get("person_ids", []),
+            }
+        )
+        yolo_raw = result.get("detected_objects", "[]")
         deepface_raw = result.get("emotions", "[]")
 
         with _get_conn() as conn:
@@ -126,13 +128,13 @@ def update_photo_pipeline_result(photo_id: str, result: dict) -> None:
     try:
         # Build METADATA: everything except YOLO and emotion data
         metadata = {
-            "user_id":          result.get("user_id", ""),
-            "caption":          result.get("caption"),
-            "tags":             result.get("tags", []),
+            "user_id": result.get("user_id", ""),
+            "caption": result.get("caption"),
+            "tags": result.get("tags", []),
             "importance_score": result.get("importance_score", 1.0),
-            "low_value_flags":  result.get("low_value_flags", []),
-            "person_ids":       result.get("person_ids", []),
-            "embedding":        result.get("embedding"),
+            "low_value_flags": result.get("low_value_flags", []),
+            "person_ids": result.get("person_ids", []),
+            "embedding": result.get("embedding"),
         }
 
         # detected_objects is already a JSON string from runner.py
