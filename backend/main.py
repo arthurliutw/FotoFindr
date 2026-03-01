@@ -312,21 +312,65 @@ async def search_photos(req: SearchRequest):
     limit = req.limit
 
     with engine.connect() as conn:
-        metadata_rows = conn.execute(text("SELECT * FROM METADATA")).fetchall()
-        yolo_rows = conn.execute(text("SELECT * FROM YOLO_DATA")).fetchall()
-        deepface_rows = conn.execute(text("SELECT * FROM DEEPFACE_DATA")).fetchall()
+        result = conn.execute(
+            text("SELECT metadata, yolo_data, deepface_data FROM PHOTOS")
+        ).fetchall()
 
-        # print(metadata_rows)
+    photos = []
+    all_objects = set()
+    all_emotions = set()
 
-        # matches = find_matches(query, objects, emotions)
-        # print(f"Matches for query '{query}': {matches}")
+    for row in result:
+        # Metadata
+        try:
+            meta = json.loads(row.metadata)
+        except (TypeError, json.JSONDecodeError):
+            meta = {}
 
-        return {
-            "ok": True,
-            "received": metadata_rows,
-            "yolo": yolo_rows,
-            "deepface": deepface_rows,
-        }
+        # YOLO labels
+        try:
+            yolo_objs = json.loads(row.yolo_data)
+            yolo_labels = [obj["label"] for obj in yolo_objs]
+        except (TypeError, json.JSONDecodeError, KeyError):
+            yolo_labels = []
+
+        # DeepFace emotions
+        try:
+            df_objs = json.loads(row.deepface_data)
+            dominant_emotions = [
+                obj["dominant_emotion"] for obj in df_objs if "dominant_emotion" in obj
+            ]
+        except (TypeError, json.JSONDecodeError, KeyError):
+            dominant_emotions = []
+
+        # Collect all objects and emotions seen so far
+        all_objects.update(yolo_labels)
+        all_emotions.update(dominant_emotions)
+
+        photos.append(
+            {
+                "metadata": meta,
+                "yolo_labels": yolo_labels,
+                "dominant_emotions": dominant_emotions,
+            }
+        )
+
+    # 2️⃣ Ask Gemini which objects/emotions match query
+    matched_labels = find_matches(query, list(all_objects), list(all_emotions))
+
+    # 3️⃣ Filter photos: keep those that have at least one matching label
+    filtered_photos = []
+    for photo in photos:
+        labels_in_photo = set(photo["yolo_labels"] + photo["dominant_emotions"])
+        if labels_in_photo & set(matched_labels):
+            filtered_photos.append(photo)
+
+    return {
+        "ok": True,
+        "query": query,
+        "matched_labels": matched_labels,
+        "photos": filtered_photos,
+    }
 
 
 @app.get("/photos/{user_id}")
