@@ -1,30 +1,31 @@
 // components/index/PhotoModal.tsx
-import React, { useState } from "react";
-import { View, Text, Modal, Pressable, StyleSheet } from "react-native";
+import React, { useEffect, useState } from "react";
+import { View, Text, Modal, Pressable, StyleSheet, FlatList, ActivityIndicator } from "react-native";
 import { Image } from "expo-image";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Audio } from "expo-av";
 import { API_BASE, DEMO_USER_ID } from "@/constants/api";
+import { LocalPhoto } from "./photogrid";
 
 type Props = {
   visible: boolean;
-  imageUri: string | null;
+  imageData: LocalPhoto;
   labels?: string[];
   onClose: () => void;
 };
 
-export default function PhotoModal({ visible, imageUri, labels = [], onClose }: Props) {
+export default function PhotoModal({ visible, imageData, onClose }: Props) {
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [loading, setLoading] = useState(false);
 
-  if (!imageUri) return null;
+  if (!imageData) return null;
 
   async function handleNarrate() {
-    if (!imageUri) return;
+    if (!imageData) return;
     setLoading(true);
     try {
       const formData = new FormData();
-      formData.append("device_uri", imageUri);
+      formData.append("device_uri", imageData.uri);
       formData.append("user_id", DEMO_USER_ID);
 
       const res = await fetch(`${API_BASE}/narrate/`, {
@@ -54,14 +55,15 @@ export default function PhotoModal({ visible, imageUri, labels = [], onClose }: 
       <View style={styles.modalContainer}>
         <View style={styles.modalContent}>
           <Pressable onPress={onClose} style={styles.modalImage}>
-            <Image source={{ uri: imageUri }} style={styles.modalImage} />
+            <Image source={{ uri: imageData.uri }} style={styles.modalImage} />
           </Pressable>
           <View style={styles.descriptionSection}>
-            <View style={styles.labelsContainer}>
+            {/* <View style={styles.labelsContainer}>
               {labels.map((label, idx) => (
                 <Text key={idx} style={styles.label}>{label}</Text>
               ))}
-            </View>
+            </View> */}
+            <ImageLabelsScreen imageId={imageData.photoId!} />
             <Pressable style={styles.narrateButton} onPress={handleNarrate}>
               <IconSymbol size={14} name="speaker.wave.2" color="#ddd" />
               <Text style={styles.narrateButtonText}>{loading ? "Loading..." : "Narrate"}</Text>
@@ -75,6 +77,66 @@ export default function PhotoModal({ visible, imageUri, labels = [], onClose }: 
     </Modal>
   );
 }
+interface ImageLabelsResponse {
+  image_id: string;
+  labels: string[];
+}
+
+
+function ImageLabelsScreen({ imageId }: { imageId: string }) {
+  const [labels, setLabels] = useState<string[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchLabels = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/image_labels/?image_id=${imageId}`);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data: ImageLabelsResponse = await response.json();
+        setLabels(data.labels || []);
+      } catch (err: unknown) {
+        if (err instanceof Error) {
+          setError(err.message);
+        } else {
+          setError("Unknown error");
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchLabels();
+  }, [imageId]);
+
+  if (loading) {
+    return (
+      <View style={styles.labelsContainer}>
+        <ActivityIndicator size="large" />
+        <Text>Loading labels...</Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.labelsContainer}>
+        <Text style={{ color: "red" }}>Error: {error}</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.labelsContainer}>
+      {labels.map((label, idx) => (
+        <Text key={idx} style={styles.label}>{label}</Text>
+      ))}
+    </View>
+  );
+};
+
 
 const styles = StyleSheet.create({
   modalContainer: { width: "100%", flex: 1, backgroundColor: "rgba(0,0,0,0.9)", justifyContent: "center", alignItems: "center" },

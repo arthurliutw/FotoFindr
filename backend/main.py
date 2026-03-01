@@ -183,34 +183,9 @@ class NameRequest(BaseModel):
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 
-# conn = snowflake.connector.connect(
-#     account=settings.snowflake_account.replace("/", "-"),
-#     user=settings.snowflake_user,
-#     password=settings.snowflake_password,
-#     database=settings.snowflake_database,
-#     schema=settings.snowflake_schema,
-#     warehouse=settings.snowflake_warehouse,
-# )
-
-# engine = create_engine(
-#     f"snowflake://{settings.snowflake_account.replace('/', '-')}.snowflakecomputing.com",
-#     creator=lambda: conn,
-# )
-
-
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
-
-# @app.get("/test-snowflake")
-# def test_snowflake():
-#     try:
-#         with engine.connect() as conn:
-#             result = conn.execute(text("SELECT COUNT(*) FROM photos"))
-#         return {"status": "ok", "rows_in_photos": result.fetchone()[0]}
-#     except Exception as e:
-#         return {"status": "error", "detail": str(e)}
 
 
 @app.post("/upload/")
@@ -271,7 +246,6 @@ async def upload_photo(
 
         # Save as JPEG
         img.save(save_path, format="JPEG", quality=quality, optimize=True)
-        compressed_bytes = save_path.read_bytes()
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Image processing failed: {e}")
@@ -280,9 +254,6 @@ async def upload_photo(
     insert_photo(photo_id, user_id, storage_url)
 
     return {"photo_id": photo_id, "storage_url": storage_url, "message": "Uploaded."}
-
-
-# Stray duplicate /search/ and /image_labels/ endpoints removed (used old SQLAlchemy engine)
 
 
 @app.get("/photos/{user_id}")
@@ -312,20 +283,17 @@ def name_person_endpoint(person_id: str, body: NameRequest):
 @app.post("/clear/{user_id}")
 async def clear_endpoint(user_id: str):
     """Clear uploads folder, SQLite, and Snowflake for a user. Called by mobile app before re-uploading."""
-    # Delete all uploaded files
     for f in UPLOAD_DIR.glob("*.jpg"):
         try:
             f.unlink()
         except Exception:
             pass
 
-    # Clear SQLite
     try:
         clear_user_photos(user_id)
     except Exception as e:
         print(f"[clear] SQLite clear failed: {e}")
 
-    # Clear Snowflake
     loop = asyncio.get_running_loop()
     try:
         await loop.run_in_executor(None, sf_db.clear_photos, user_id)

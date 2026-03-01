@@ -9,16 +9,12 @@ import {
 import * as MediaLibrary from "expo-media-library";
 import { API_BASE, DEMO_USER_ID } from "@/constants/api";
 import SearchBar from "@/components/ui/searchbar";
-import PhotoGrid from "@/components/index/photogrid";
+import PhotoGrid, { LocalPhoto } from "@/components/index/photogrid";
 import PhotoModal from "@/components/index/photomodal";
 import StatusBar from "@/components/index/statusbar";
 
 const INDEX_LIMIT = 30; // index the N most recent photos on startup
 
-type LocalPhoto = {
-  id: string;
-  uri: string;
-};
 
 export default function CameraRollScreen() {
   const [photos, setPhotos] = useState<LocalPhoto[]>([]);
@@ -26,7 +22,7 @@ export default function CameraRollScreen() {
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [indexDone, setIndexDone] = useState(0);
   const [indexTotal, setIndexTotal] = useState(0);
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedImage, setSelectedImage] = useState<LocalPhoto | null>(null);
   const [stage, setStage] = useState<"idle" | "clearing" | "uploading" | "processing" | "ready">("idle");
 
   useEffect(() => {
@@ -65,7 +61,7 @@ export default function CameraRollScreen() {
       sortBy: MediaLibrary.SortBy.creationTime,
     });
 
-    setPhotos(assets.map((a) => ({ id: a.id, uri: a.uri })));
+    setPhotos(assets.map((a) => ({ assetId: a.id, uri: a.uri })));
     setLoading(false);
 
     // 1. Clear old Snowflake data for this user before re-uploading
@@ -117,7 +113,7 @@ export default function CameraRollScreen() {
       sortBy: MediaLibrary.SortBy.creationTime,
     });
 
-    setPhotos(assets.map((a) => ({ id: a.id, uri: a.uri })));
+    setPhotos(assets.map((a) => ({ assetId: a.id, uri: a.uri })));
 
     // Auto-index the next batch of photos
     const toIndex = assets.slice(indexTotal, indexTotal + INDEX_LIMIT);
@@ -152,7 +148,12 @@ export default function CameraRollScreen() {
       formData.append("device_uri", asset.uri);  // on-device reference stored in Snowflake
       formData.append("file", { uri, name: asset.filename || "photo.jpg", type: "image/jpeg" } as any);
 
-      await fetch(`${API_BASE}/upload/`, { method: "POST", body: formData, signal: controller.signal });
+      const photoId = (await fetch(`${API_BASE}/upload/`, { method: "POST", body: formData, signal: controller.signal })).photo_id;
+      setPhotos((prevPhotos) =>
+        prevPhotos.map((photo) =>
+          photo.assetId === asset.id ? { ...photo, photoId } : photo
+        )
+      );
     } catch {
       // backend offline or timed out — progress still advances
     } finally {
@@ -167,7 +168,7 @@ export default function CameraRollScreen() {
       <StatusBar stage={stage} indexDone={indexDone} indexTotal={indexTotal} />
 
       <Pressable onPress={triggerReprocess} style={{ backgroundColor: "#6c63ff", padding: 10, borderRadius: 8, marginBottom: 8, alignItems: "center" }}>
-        <Text style={{ color: "#fff", fontWeight: "600" }}>Run AI Pipeline</Text>
+        <Text style={{ color: "#fff", fontWeight: "600" }}>Run AI Pipeline (todo remove)</Text>
       </Pressable>
 
       {loading ? (
@@ -182,7 +183,7 @@ export default function CameraRollScreen() {
 
       <PhotoModal
         visible={!!selectedImage}
-        imageUri={selectedImage}
+        imageData={selectedImage!}
         labels={["Label 1", "Label 2", "Label 3"]}
         onClose={() => setSelectedImage(null)}
       />
