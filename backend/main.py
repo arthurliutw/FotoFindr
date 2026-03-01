@@ -336,7 +336,7 @@ async def search_photos(req: SearchRequest):
 
     with engine.connect() as conn:
         result = conn.execute(
-            text("SELECT metadata, yolo_data, deepface_data FROM PHOTOS")
+            text("SELECT id, metadata, yolo_data, deepface_data FROM PHOTOS")
         ).fetchall()
 
     photos = []
@@ -375,6 +375,7 @@ async def search_photos(req: SearchRequest):
                 "metadata": meta,
                 "yolo_labels": yolo_labels,
                 "dominant_emotions": dominant_emotions,
+                "id": row.id,
             }
         )
 

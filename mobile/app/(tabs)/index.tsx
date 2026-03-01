@@ -179,12 +179,12 @@ export default function CameraRollScreen() {
 
       const data: {
         ok: boolean;
-        photos: Array<{ metadata: any }>;
+        photos: Array<{ metadata: any, id: string }>;
       } = await response.json();
 
       if (data.ok) {
         const photoIds = data.photos
-          .map((photo) => photo.metadata?.id)
+          .map((photo) => photo.id)
           .filter((id): id is string => !!id);
 
         setFilter(photoIds);
@@ -199,10 +199,6 @@ export default function CameraRollScreen() {
       <Text style={{ fontSize: 28, fontWeight: "700", color: "#fff", textAlign: "center", marginBottom: 8 }}>FotoFindr</Text>
 
       <StatusBar stage={stage} indexDone={indexDone} indexTotal={indexTotal} />
-
-      <Pressable onPress={triggerReprocess} style={{ backgroundColor: "#6c63ff", padding: 10, borderRadius: 8, marginBottom: 8, alignItems: "center" }}>
-        <Text style={{ color: "#fff", fontWeight: "600" }}>Run AI Pipeline (todo remove)</Text>
-      </Pressable>
 
       {loading ? (
         <ActivityIndicator color="#6c63ff" style={{ marginTop: 40 }} />
