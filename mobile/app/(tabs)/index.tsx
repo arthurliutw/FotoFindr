@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Text,
   ActivityIndicator,
@@ -25,6 +25,7 @@ export default function CameraRollScreen() {
   const [selectedImage, setSelectedImage] = useState<LocalPhoto | null>(null);
   const [stage, setStage] = useState<"idle" | "clearing" | "uploading" | "processing" | "ready">("idle");
   const [filter, setFilter] = useState<string[]>([]);
+  const photoIdRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     loadAndIndex();
@@ -152,12 +153,13 @@ export default function CameraRollScreen() {
       const res = await fetch(`${API_BASE}/upload/`, { method: "POST", body: formData, signal: controller.signal });
       const data = await res.json();
       const photoId: string = data.photo_id;
-      console.log('photo id is ', photoId);
-      setPhotos((prevPhotos) =>
-        prevPhotos.map((photo) =>
-          photo.assetId === asset.id ? { ...photo, photoId } : photo
-        )
-      );
+      // console.log('photo id is ', photoId);
+      // setPhotos((prevPhotos) =>
+      //   prevPhotos.map((photo) =>
+      //     photo.assetId === asset.id ? { ...photo, photoId } : photo
+      //   )
+      // );
+      photoIdRef.current[asset.id] = photoId;
     } catch {
       // backend offline or timed out — progress still advances
     } finally {
@@ -208,7 +210,7 @@ export default function CameraRollScreen() {
       ) : photos.length === 0 ? (
         <Text style={{ color: "#aaa", textAlign: "center", marginTop: 60, fontSize: 15 }}>No photos found on this device.</Text>
       ) : (
-        <PhotoGrid photos={photos} onPhotoPress={setSelectedImage} loadMore={loadMore} filter={filter} />
+        <PhotoGrid photos={photos} onPhotoPress={setSelectedImage} loadMore={loadMore} filter={filter} photoIdMap={photoIdRef.current} />
       )}
 
       <PhotoModal

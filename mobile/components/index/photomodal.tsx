@@ -12,16 +12,17 @@ type Props = {
   imageData: LocalPhoto;
   labels?: string[];
   onClose: () => void;
+  photoIdMap: Record<string, string>;
 };
 
-export default function PhotoModal({ visible, imageData, onClose }: Props) {
+export default function PhotoModal({ visible, imageData, onClose, photoIdMap }: Props) {
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [loading, setLoading] = useState(false);
 
   if (!imageData) return null;
 
   async function handleNarrate() {
-    if (!imageData?.photoId) {
+    if (!imageData?.assetId || !photoIdMap[imageData.assetId]) {
       console.warn("[narrate] no photoId on this image yet");
       return;
     }
@@ -31,7 +32,7 @@ export default function PhotoModal({ visible, imageData, onClose }: Props) {
       await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
 
       const formData = new FormData();
-      formData.append("photo_id", imageData.photoId);
+      formData.append("photo_id", photoIdMap[imageData.assetId]!);
       formData.append("user_id", DEMO_USER_ID);
 
       const res = await fetch(`${API_BASE}/narrate/`, {
@@ -76,7 +77,7 @@ export default function PhotoModal({ visible, imageData, onClose }: Props) {
                 <Text key={idx} style={styles.label}>{label}</Text>
               ))}
             </View> */}
-            <ImageLabelsScreen imageId={imageData.photoId!} />
+            <ImageLabelsScreen imageId={photoIdMap[imageData.assetId]!} />
             <Pressable style={styles.narrateButton} onPress={handleNarrate}>
               <IconSymbol size={14} name="speaker.wave.2" color="#ddd" />
               <Text style={styles.narrateButtonText}>{loading ? "Loading..." : "Narrate"}</Text>

@@ -4,7 +4,6 @@ import { Image } from "expo-image";
 
 export type LocalPhoto = {
   assetId: string;
-  photoId?: string; // assigned by backend after upload
   uri: string;
 };
 
@@ -13,11 +12,13 @@ type Props = {
   onPhotoPress: (photoId: LocalPhoto) => void;
   loadMore: () => void;
   filter: string[];
+  photoIdMap: Record<string, string>;
 };
 
-export default function PhotoGrid({ photos, onPhotoPress, loadMore, filter }: Props) {
+export default function PhotoGrid({ photos, photoIdMap, onPhotoPress, loadMore, filter }: Props) {
   const filteredPhotos = filter.length > 0
-    ? photos.filter(photo => filter.includes(photo.photoId!))
+    ? photos.filter(photo => filter.includes(photoIdMap[photo.assetId]))
+
     : photos;
 
   return (
