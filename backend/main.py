@@ -4,7 +4,7 @@ import json
 import asyncio
 import traceback
 import numpy as np
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy import create_engine, text
@@ -196,7 +196,6 @@ async def _run_ai_pipeline(
 class SearchRequest(BaseModel):
     query: str
     user_id: str
-    limit: int = 30
 
 
 class NameRequest(BaseModel):
@@ -309,7 +308,6 @@ async def upload_photo(
 async def search_photos(req: SearchRequest):
     query = req.query.strip()
     user_id = req.user_id.strip()
-    limit = req.limit
 
     with engine.connect() as conn:
         result = conn.execute(
@@ -371,6 +369,40 @@ async def search_photos(req: SearchRequest):
         "matched_labels": matched_labels,
         "photos": filtered_photos,
     }
+
+
+@app.get("/image_labels/")
+def get_image_labels(image_id: str = Query(..., description="The ID of the image")):
+    """
+    Returns all YOLO object labels and DeepFace dominant emotions for a given image.
+    """
+    query = text("SELECT yolo_data, deepface_data FROM PHOTOS WHERE id = :image_id")
+
+    with engine.connect() as conn:
+        result = conn.execute(query, {"image_id": image_id}).fetchone()
+
+    if not result:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    labels = []
+
+    # Parse YOLO labels
+    try:
+        yolo_objs = json.loads(result.yolo_data)
+        labels.extend([obj["label"] for obj in yolo_objs])
+    except (TypeError, json.JSONDecodeError, KeyError):
+        pass
+
+    # Parse DeepFace dominant emotions
+    try:
+        df_objs = json.loads(result.deepface_data)
+        labels.extend(
+            [obj["dominant_emotion"] for obj in df_objs if "dominant_emotion" in obj]
+        )
+    except (TypeError, json.JSONDecodeError, KeyError):
+        pass
+
+    return {"image_id": image_id, "labels": labels}
 
 
 @app.get("/photos/{user_id}")
