@@ -21,30 +21,43 @@ export default function PhotoModal({ visible, imageData, onClose }: Props) {
   if (!imageData) return null;
 
   async function handleNarrate() {
-    if (!imageData) return;
+    if (!imageData?.photoId) {
+      console.warn("[narrate] no photoId on this image yet");
+      return;
+    }
     setLoading(true);
     try {
+      // Allow audio to play even when device is on silent
+      await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+
       const formData = new FormData();
-      formData.append("device_uri", imageData.uri);
+      formData.append("photo_id", imageData.photoId);
       formData.append("user_id", DEMO_USER_ID);
 
       const res = await fetch(`${API_BASE}/narrate/`, {
         method: "POST",
         body: formData,
       });
+      if (!res.ok) {
+        const text = await res.text();
+        console.error("[narrate] server error:", res.status, text);
+        return;
+      }
       const data = await res.json();
+      console.log("[narrate] response:", data);
+
       if (data.audio_url) {
-        if (sound) {
-          await sound.unloadAsync();
-        }
-        const { sound: newSound } = await Audio.Sound.createAsync({
-          uri: `${API_BASE}${data.audio_url}`,
-        });
+        if (sound) await sound.unloadAsync();
+        const { sound: newSound } = await Audio.Sound.createAsync(
+          { uri: `${API_BASE}${data.audio_url}` },
+          { shouldPlay: true },
+        );
         setSound(newSound);
-        await newSound.playAsync();
+      } else {
+        console.error("[narrate] no audio_url in response:", data);
       }
     } catch (e) {
-      console.error("Narrate failed", e);
+      console.error("[narrate] failed:", e);
     } finally {
       setLoading(false);
     }

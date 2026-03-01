@@ -51,6 +51,7 @@ from db import (
     name_person,
     clear_user_photos,
     get_pipeline_status,
+    get_photo_by_id,
 )
 from gemini_service import find_matching_labels
 from narration import router as narration_router
@@ -307,6 +308,24 @@ async def clear_endpoint(user_id: str):
 async def pipeline_status(user_id: str):
     """Returns how many photos have been processed by the AI pipeline."""
     return get_pipeline_status(user_id)
+
+
+@app.get("/image_labels/")
+def image_labels(image_id: str):
+    """Return detected object and emotion labels for a single photo."""
+    photo = get_photo_by_id(image_id)
+    if not photo:
+        raise HTTPException(status_code=404, detail=f"Photo {image_id} not found")
+
+    labels: list[str] = []
+    for obj in (photo.get("detected_objects") or []):
+        if isinstance(obj, dict) and obj.get("label"):
+            labels.append(obj["label"])
+    for face in (photo.get("emotions") or []):
+        if isinstance(face, dict) and face.get("dominant_emotion"):
+            labels.append(face["dominant_emotion"])
+
+    return {"image_id": image_id, "labels": labels}
 
 
 @app.post("/search/")

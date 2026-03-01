@@ -216,6 +216,12 @@ def get_pipeline_status(user_id: str) -> dict:
     return {"processed": processed, "total": total}
 
 
+def get_photo_by_id(photo_id: str) -> dict | None:
+    with _get_conn() as conn:
+        row = conn.execute("SELECT * FROM photos WHERE id = ?", (photo_id,)).fetchone()
+    return _row_to_dict(dict(row)) if row else None
+
+
 def get_all_photos_for_user(user_id: str) -> list[dict]:
     with _get_conn() as conn:
         rows = conn.execute(

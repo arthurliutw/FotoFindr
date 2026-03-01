@@ -1,26 +1,32 @@
 import json
-import google.generativeai as genai
-from backend.config import settings
+import sys
+from pathlib import Path
 
-_model = None
+_project_root = Path(__file__).resolve().parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
+from google import genai
+from google.genai import types
+from config import settings
+
+_client = None
 
 
-def _get_model():
-    global _model
-    if _model is None:
-        genai.configure(api_key=settings.gemini_api_key)
-        _model = genai.GenerativeModel("gemini-1.5-flash")
-    return _model
+def _get_client() -> genai.Client:
+    global _client
+    if _client is None:
+        _client = genai.Client(api_key=settings.gemini_api_key)
+    return _client
+
+
+MODEL = "gemini-2.0-flash"
 
 
 def find_matching_labels(
     query: str, object_labels: list[str], emotion_labels: list[str]
 ) -> list[str]:
-    """Ask Gemini which object/emotion labels match the user's query.
-
-    Returns a list of matching label strings from the provided sets.
-    Falls back to an empty list on any error.
-    """
+    """Ask Gemini which object/emotion labels match the user's query."""
     if not settings.gemini_api_key:
         return []
     if not object_labels and not emotion_labels:
@@ -40,9 +46,11 @@ Example output: ["dog", "happy"]
 """
 
     try:
-        response = _get_model().generate_content(prompt)
+        response = _get_client().models.generate_content(
+            model=MODEL,
+            contents=prompt,
+        )
         text = response.text.strip()
-        # Strip markdown code fences if present
         if text.startswith("```"):
             text = text.split("```")[1]
             if text.startswith("json"):
@@ -53,24 +61,38 @@ Example output: ["dog", "happy"]
         return []
 
 
-# backend/gemini_service.py
+def _label_fallback_description(objects: list, emotions: list) -> str:
+    """Build a simple description from labels when Gemini is unavailable."""
+    parts = []
+    if objects:
+        parts.append(f"This photo contains {', '.join(str(o) for o in objects[:5])}")
+    if emotions:
+        parts.append(f"The people appear {', '.join(str(e) for e in emotions[:3])}")
+    return ". ".join(parts) + "." if parts else "A photo from your camera roll."
 
-def generate_description(image_bytes, objects, emotions):
-    model = _get_model() # Added parens to call the function
-    
-    prompt = f"""
-    You are describing an image for a user.
-    Detected objects: {objects}
-    Detected emotions: {emotions}
 
-    Using the image and these tags, generate a natural, conversational description.
-    Keep it 1-3 sentences.
-    """
+def generate_description(image_bytes: bytes, objects: list, emotions: list) -> str:
+    """Generate a natural language description of an image using Gemini vision.
+    Falls back to a label-based description if the API is unavailable or rate-limited."""
+    if not settings.gemini_api_key:
+        return _label_fallback_description(objects, emotions)
 
-    # Pass the actual image data as a dict for the GenerativeModel
-    response = model.generate_content([
-        prompt, 
-        {"mime_type": "image/jpeg", "data": image_bytes}
-    ])
+    prompt = f"""You are describing an image for a user.
+Detected objects: {objects}
+Detected emotions: {emotions}
 
-    return response.text.strip()
+Using the image and these tags, generate a natural, conversational description.
+Keep it 1-3 sentences."""
+
+    try:
+        response = _get_client().models.generate_content(
+            model=MODEL,
+            contents=[
+                prompt,
+                types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
+            ],
+        )
+        return response.text.strip()
+    except Exception as e:
+        print(f"[gemini] generate_description fell back to labels: {e}")
+        return _label_fallback_description(objects, emotions)
