@@ -115,7 +115,7 @@ function ImageLabelsScreen({ imageId }: { imageId: string }) {
     return (
       <View style={styles.labelsContainer}>
         <ActivityIndicator size="large" />
-        <Text>Loading labels...</Text>
+        <Text>Loading labels... {imageId}</Text>
       </View>
     );
   }

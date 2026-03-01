@@ -124,7 +124,9 @@ export default function CameraRollScreen() {
       formData.append("device_uri", asset.uri);  // on-device reference stored in Snowflake
       formData.append("file", { uri, name: asset.filename || "photo.jpg", type: "image/jpeg" } as any);
 
-      const photoId = (await fetch(`${API_BASE}/upload/`, { method: "POST", body: formData, signal: controller.signal })).photo_id;
+      const res = await fetch(`${API_BASE}/upload/`, { method: "POST", body: formData, signal: controller.signal });
+      const result = await res.json();
+      const photoId = result.photo_id; // backend assigns a unique photoId after upload
       setPhotos((prevPhotos) =>
         prevPhotos.map((photo) =>
           photo.assetId === asset.id ? { ...photo, photoId } : photo
