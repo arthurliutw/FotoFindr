@@ -1,21 +1,16 @@
 import React, { useState, useEffect } from "react";
 import {
-  View,
   Text,
-  FlatList,
-  StyleSheet,
   ActivityIndicator,
-  Pressable,
-  Modal,
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
-import { Image } from "expo-image";
 import * as MediaLibrary from "expo-media-library";
 import { API_BASE, DEMO_USER_ID } from "@/constants/api";
 import SearchBar from "@/components/ui/searchbar";
-import ParallaxScrollView from "@/components/parallax-scroll-view";
-import { IconSymbol } from "@/components/ui/icon-symbol";
+import PhotoGrid from "@/components/index/photogrid";
+import PhotoModal from "@/components/index/photomodal";
+import StatusBar from "@/components/index/statusbar";
 
 const INDEX_LIMIT = 30; // index the N most recent photos on startup
 
@@ -130,136 +125,30 @@ export default function CameraRollScreen() {
     }
   }
 
-  const statusLabel =
-    stage === "clearing" ? "Clearing old data…" :
-      stage === "uploading" ? `Uploading… ${indexDone}/${indexTotal}` :
-        stage === "processing" ? "Running AI pipeline…" :
-          stage === "ready" ? "Ready to search" : null;
-
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.container}>
-      <Text style={styles.title}>FotoFindr</Text>
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1, backgroundColor: "#0a0a0a", paddingTop: 60, paddingHorizontal: 16 }}>
+      <Text style={{ fontSize: 28, fontWeight: "700", color: "#fff", textAlign: "center", marginBottom: 8 }}>FotoFindr</Text>
 
-      {stage !== "idle" && stage !== "ready" && statusLabel && (
-        <View style={styles.statusBar}>
-          <ActivityIndicator size="small" color="#6c63ff" />
-          <Text style={styles.statusText}>{statusLabel}</Text>
-        </View>
-      )}
-      {stage === "ready" && (
-        <Text style={styles.statusReady}>{statusLabel}</Text>
-      )}
+      <StatusBar stage={stage} indexDone={indexDone} indexTotal={indexTotal} />
 
-      {/* images */}
       {loading ? (
         <ActivityIndicator color="#6c63ff" style={{ marginTop: 40 }} />
       ) : permissionDenied ? (
-        <Text style={styles.empty}>
-          No photo access. Enable it in Settings → FotoFindr → Photos.
-        </Text>
+        <Text style={{ color: "#aaa", textAlign: "center", marginTop: 60, fontSize: 15 }}>No photo access. Enable it in Settings → FotoFindr → Photos.</Text>
       ) : photos.length === 0 ? (
-        <Text style={styles.empty}>No photos found on this device.</Text>
+        <Text style={{ color: "#aaa", textAlign: "center", marginTop: 60, fontSize: 15 }}>No photos found on this device.</Text>
       ) : (
-        <FlatList
-          data={photos}
-          keyExtractor={(item) => item.id}
-          numColumns={3}
-          renderItem={({ item }) => (
-            <Pressable onPress={() => setSelectedImage(item.uri)} style={{ flex: 1 / 3 }}>
-              <Image source={{ uri: item.uri }} style={styles.thumb} />
-            </Pressable>
-          )}
-          contentContainerStyle={styles.grid}
-          ListFooterComponent={photos.length > 0 ? (
-            <Pressable onPress={loadMore}>
-              <Text style={styles.loadMoreButton}>
-                Load More
-              </Text>
-            </Pressable>
-          ) : null}
-          ListFooterComponentStyle={{ paddingBottom: 30 }}
-        />
+        <PhotoGrid photos={photos} onPhotoPress={setSelectedImage} loadMore={loadMore} />
       )}
 
-      <Modal
+      <PhotoModal
         visible={!!selectedImage}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setSelectedImage(null)}
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <Pressable onPress={() => setSelectedImage(null)}
-              style={styles.modalImage}>
-              <Image
-                source={{ uri: selectedImage! }}
-                style={styles.modalImage}
-              />
-            </Pressable>
-            <View style={styles.descriptionSection}>
-              <View style={styles.labelsContainer}>
-                <Text style={styles.label}>Label 1</Text>
-                <Text style={styles.label}>Label 2</Text>
-                <Text style={styles.label}>Label 3</Text>
-              </View>
-              <Pressable style={styles.narrateButton}>
-                <IconSymbol size={14} name="speaker.wave.2" color={"#ddd"} />
-                <Text style={styles.narrateButtonText}>Narrate</Text>
-              </Pressable>
-            </View>
-          </View>
-          <Pressable
-            style={styles.closeButton}
-            onPress={() => setSelectedImage(null)}
-          >
-            <Text style={styles.closeButtonText}>✕</Text>
-          </Pressable>
-        </View>
-      </Modal>
+        imageUri={selectedImage}
+        labels={["Label 1", "Label 2", "Label 3"]}
+        onClose={() => setSelectedImage(null)}
+      />
 
       <SearchBar />
     </KeyboardAvoidingView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0a0a0a", paddingTop: 60, paddingHorizontal: 16 },
-  title: { fontSize: 28, fontWeight: "700", color: "#fff", textAlign: "center", marginBottom: 8 },
-  statusBar: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 12 },
-  statusText: { color: "#6c63ff", fontSize: 13 },
-  statusReady: { color: "#4caf50", fontSize: 13, textAlign: "center", marginBottom: 12 },
-  empty: { color: "#aaa", textAlign: "center", marginTop: 60, fontSize: 15 },
-  grid: { gap: 2 },
-  thumb: { aspectRatio: 1, margin: 1, borderRadius: 4 },
-  loadMoreButton: { color: "#6c63ff", textAlign: "center", marginTop: 16, fontSize: 14, fontWeight: "600" },
-  modalContainer: { width: "100%", flex: 1, backgroundColor: "rgba(0, 0, 0, 0.9)", justifyContent: "center", alignItems: "center" },
-  fullImage: { width: "100%", height: "100%" },
-  modalContent: {
-    flex: 1,
-    justifyContent: "flex-start",
-    alignItems: "center",
-    width: "100%",
-    paddingVertical: 10,
-    gap: 0
-  },
-
-  modalImage: {
-    flex: 10,
-    width: "100%",
-    resizeMode: "contain",
-  },
-
-  descriptionSection: {
-    flex: 2,
-    width: "100%",
-    padding: 16,
-    backgroundColor: "rgba(0,0,0,0.7)",
-  },
-  labelsContainer: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
-  label: { backgroundColor: "#6c63ff", color: "#fff", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, fontSize: 12 },
-  narrateButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 12, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: "#444" },
-  narrateButtonText: { color: "#ddd", fontSize: 14, fontWeight: "600" },
-  closeButton: { position: "absolute", top: 40, right: 20, zIndex: 1 },
-  closeButtonText: { color: "#fff", fontSize: 32, fontWeight: "bold" },
-});
