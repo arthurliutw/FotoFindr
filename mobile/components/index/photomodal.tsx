@@ -5,28 +5,27 @@ import { Image } from "expo-image";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Audio } from "expo-av";
 import { API_BASE, DEMO_USER_ID } from "@/constants/api";
+import { LocalPhoto } from "./photogrid";
 
 type Props = {
   visible: boolean;
-  imageUri: string | null;
+  imageData: LocalPhoto;
   labels?: string[];
   onClose: () => void;
 };
 
-export default function PhotoModal({ visible, imageUri, onClose }: Props) {
+export default function PhotoModal({ visible, imageData, onClose }: Props) {
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [loading, setLoading] = useState(false);
 
-  console.log('imageuri is', imageUri);
-
-  if (!imageUri) return null;
+  if (!imageData) return null;
 
   async function handleNarrate() {
-    if (!imageUri) return;
+    if (!imageData) return;
     setLoading(true);
     try {
       const formData = new FormData();
-      formData.append("device_uri", imageUri);
+      formData.append("device_uri", imageData.uri);
       formData.append("user_id", DEMO_USER_ID);
 
       const res = await fetch(`${API_BASE}/narrate/`, {
@@ -56,7 +55,7 @@ export default function PhotoModal({ visible, imageUri, onClose }: Props) {
       <View style={styles.modalContainer}>
         <View style={styles.modalContent}>
           <Pressable onPress={onClose} style={styles.modalImage}>
-            <Image source={{ uri: imageUri }} style={styles.modalImage} />
+            <Image source={{ uri: imageData.uri }} style={styles.modalImage} />
           </Pressable>
           <View style={styles.descriptionSection}>
             {/* <View style={styles.labelsContainer}>
@@ -64,11 +63,10 @@ export default function PhotoModal({ visible, imageUri, onClose }: Props) {
                 <Text key={idx} style={styles.label}>{label}</Text>
               ))}
             </View> */}
-            <ImageLabelsScreen imageId={imageUri.split(".")[0]} />
+            <ImageLabelsScreen imageId={imageData.photoId!} />
             <Pressable style={styles.narrateButton} onPress={handleNarrate}>
               <IconSymbol size={14} name="speaker.wave.2" color="#ddd" />
               <Text style={styles.narrateButtonText}>{loading ? "Loading..." : "Narrate"}</Text>
-              <Text>{imageUri}</Text>
             </Pressable>
           </View>
         </View>

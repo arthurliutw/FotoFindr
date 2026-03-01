@@ -10,7 +10,7 @@ export type LocalPhoto = {
 
 type Props = {
   photos: LocalPhoto[];
-  onPhotoPress: (photoId: string) => void;
+  onPhotoPress: (photoId: LocalPhoto) => void;
   loadMore: () => void;
 };
 
@@ -21,7 +21,7 @@ export default function PhotoGrid({ photos, onPhotoPress, loadMore }: Props) {
       keyExtractor={(item) => item.assetId}
       numColumns={3}
       renderItem={({ item }) => (
-        <Pressable onPress={() => onPhotoPress(item.photoId!)} style={{ flex: 1 / 3 }}>
+        <Pressable onPress={() => onPhotoPress(item)} style={{ flex: 1 / 3 }}>
           <Image source={{ uri: item.uri }} style={styles.thumb} />
         </Pressable>
       )}

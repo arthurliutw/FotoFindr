@@ -22,7 +22,7 @@ export default function CameraRollScreen() {
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [indexDone, setIndexDone] = useState(0);
   const [indexTotal, setIndexTotal] = useState(0);
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedImage, setSelectedImage] = useState<LocalPhoto | null>(null);
   const [stage, setStage] = useState<"idle" | "clearing" | "uploading" | "processing" | "ready">("idle");
 
   useEffect(() => {
@@ -43,7 +43,7 @@ export default function CameraRollScreen() {
       sortBy: MediaLibrary.SortBy.creationTime,
     });
 
-    setPhotos(assets.map((a) => ({ id: a.id, uri: a.uri })));
+    setPhotos(assets.map((a) => ({ assetId: a.id, uri: a.uri })));
     setLoading(false);
 
     // 1. Clear old Snowflake data for this user before re-uploading
@@ -89,7 +89,7 @@ export default function CameraRollScreen() {
       sortBy: MediaLibrary.SortBy.creationTime,
     });
 
-    setPhotos(assets.map((a) => ({ id: a.id, uri: a.uri })));
+    setPhotos(assets.map((a) => ({ assetId: a.id, uri: a.uri })));
 
     // Auto-index the next batch of photos
     const toIndex = assets.slice(indexTotal, indexTotal + INDEX_LIMIT);
@@ -159,7 +159,7 @@ export default function CameraRollScreen() {
 
       <PhotoModal
         visible={!!selectedImage}
-        imageUri={selectedImage}
+        imageData={selectedImage!}
         labels={["Label 1", "Label 2", "Label 3"]}
         onClose={() => setSelectedImage(null)}
       />
