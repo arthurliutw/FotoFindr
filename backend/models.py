@@ -88,3 +88,6 @@ class PipelineResult(BaseModel):
     face_cluster_ids: list[UUID] = []
     importance_score: float = 1.0
     low_value_flags: list[str] = []
+
+class DescriptionResponse(BaseModel):
+    description: str

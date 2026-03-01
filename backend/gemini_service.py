@@ -49,3 +49,20 @@ Example output: ["dog", "happy"]
     except Exception as e:
         print(f"[gemini] find_matching_labels error: {e}")
         return []
+
+def generate_description(image, objects, emotions):
+
+    prompt = f"""
+You are describing an image.
+
+Detected objects: {objects}
+Detected emotions: {emotions}
+
+Using the image and tags, generate a natural language description of the scene.
+Mention the objects and the emotional tone if relevant.
+Keep it 1-3 sentences.
+"""
+
+    response = _get_model.generate_content([prompt, image])
+
+    return response.text.strip()
