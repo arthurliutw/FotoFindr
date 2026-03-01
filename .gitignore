@@ -23,7 +23,6 @@ mobile/.env
 *.tsbuildinfo
 
 # IDE
-.vscode/
 .idea/
 *.swp
 
