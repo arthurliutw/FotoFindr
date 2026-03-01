@@ -169,7 +169,7 @@ export default function CameraRollScreen() {
 
   async function handleSearch(text: string): Promise<void> {
     if (text.trim() === "") {
-      setSearchResults(null);
+      setFilter([]);
       return;
     }
 
@@ -180,15 +180,20 @@ export default function CameraRollScreen() {
         body: JSON.stringify({ query: text, user_id: DEMO_USER_ID }),
       });
 
-      const data = await response.json();
-      const results: LocalPhoto[] = (data.photos ?? []).map((p: any) => ({
-        assetId: p.id,
-        photoId: p.id,
-        uri: `${API_BASE}${p.storage_url}`,
-      }));
-      setSearchResults(results);
-      console.log(`[search] "${text}" → ${results.length} results, labels:`, data.matched_labels);
+      const data: {
+        ok: boolean;
+        photos: Array<{ metadata: any, id: string }>;
+      } = await response.json();
+
+      if (data.ok) {
+        const photoIds = data.photos
+          .map((photo) => photo.id)
+          .filter((id): id is string => !!id);
+
+        setFilter(photoIds);
+      }
     } catch (e) {
+      // Fail silently, filter won't update
       console.error("[search] failed:", e);
     }
   }
@@ -206,14 +211,14 @@ export default function CameraRollScreen() {
       ) : photos.length === 0 ? (
         <Text style={{ color: "#aaa", textAlign: "center", marginTop: 60, fontSize: 15 }}>No photos found on this device.</Text>
       ) : (
-        <PhotoGrid photos={photos} onPhotoPress={setSelectedImage} loadMore={loadMore} filter={filter} />
-      )}
+        <PhotoGrid photos={photos} onPhotoPress={setSelectedImage} loadMore={loadMore} filter={filter} photoIdMap={photoIdRef.current} />)}
 
       <PhotoModal
         visible={!!selectedImage}
         imageData={selectedImage!}
         labels={["Label 1", "Label 2", "Label 3"]}
         onClose={() => setSelectedImage(null)}
+        photoIdMap={photoIdRef.current}
       />
 
       <SearchBar onSearch={handleSearch} />
