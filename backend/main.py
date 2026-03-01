@@ -4,9 +4,11 @@ import json
 import asyncio
 import traceback
 import numpy as np
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy import create_engine, text
+
 # from sqlalchemy import create_engine, text
 
 # from search import find_matches
@@ -90,7 +92,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount("/uploads/narrations", StaticFiles(directory="uploads/narrations"), name="narrations")
+app.mount(
+    "/uploads/narrations",
+    StaticFiles(directory="uploads/narrations"),
+    name="narrations",
+)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 app.include_router(narration_router)
 
@@ -181,6 +187,21 @@ class NameRequest(BaseModel):
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
+
+
+conn = snowflake.connector.connect(
+    account=settings.snowflake_account.replace("/", "-"),
+    user=settings.snowflake_user,
+    password=settings.snowflake_password,
+    database=settings.snowflake_database,
+    schema=settings.snowflake_schema,
+    warehouse=settings.snowflake_warehouse,
+)
+
+engine = create_engine(
+    f"snowflake://{settings.snowflake_account.replace('/', '-')}.snowflakecomputing.com",
+    creator=lambda: conn,
+)
 
 
 @app.get("/health")
@@ -317,10 +338,10 @@ async def search_photos(req: SearchRequest):
     object_labels: set[str] = set()
     emotion_labels: set[str] = set()
     for p in all_photos:
-        for obj in (p.get("detected_objects") or []):
+        for obj in p.get("detected_objects") or []:
             if isinstance(obj, dict) and obj.get("label"):
                 object_labels.add(obj["label"].lower())
-        for face in (p.get("emotions") or []):
+        for face in p.get("emotions") or []:
             if isinstance(face, dict) and face.get("dominant_emotion"):
                 emotion_labels.add(face["dominant_emotion"].lower())
 
@@ -332,20 +353,56 @@ async def search_photos(req: SearchRequest):
 
     if matching_set:
         photos = [
-            p for p in all_photos
+            p
+            for p in all_photos
             if any(
                 isinstance(obj, dict) and obj.get("label", "").lower() in matching_set
                 for obj in (p.get("detected_objects") or [])
             )
             or any(
-                isinstance(face, dict) and face.get("dominant_emotion", "").lower() in matching_set
+                isinstance(face, dict)
+                and face.get("dominant_emotion", "").lower() in matching_set
                 for face in (p.get("emotions") or [])
             )
         ]
     else:
         photos = all_photos
 
-    return {"photos": photos[:req.limit], "matched_labels": list(matching_set)}
+    return {"photos": photos[: req.limit], "matched_labels": list(matching_set)}
+
+
+@app.get("/image_labels/")
+def get_image_labels(image_id: str = Query(..., description="The ID of the image")):
+    """
+    Returns all YOLO object labels and DeepFace dominant emotions for a given image.
+    """
+    query = text("SELECT yolo_data, deepface_data FROM PHOTOS WHERE id = :image_id")
+
+    with engine.connect() as conn:
+        result = conn.execute(query, {"image_id": image_id}).fetchone()
+
+    if not result:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    labels = []
+
+    # Parse YOLO labels
+    try:
+        yolo_objs = json.loads(result.yolo_data)
+        labels.extend([obj["label"] for obj in yolo_objs])
+    except (TypeError, json.JSONDecodeError, KeyError):
+        pass
+
+    # Parse DeepFace dominant emotions
+    try:
+        df_objs = json.loads(result.deepface_data)
+        labels.extend(
+            [obj["dominant_emotion"] for obj in df_objs if "dominant_emotion" in obj]
+        )
+    except (TypeError, json.JSONDecodeError, KeyError):
+        pass
+
+    return {"image_id": image_id, "labels": labels}
 
 
 @app.post("/reprocess/{user_id}")
