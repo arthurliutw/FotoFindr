@@ -370,6 +370,7 @@ async def search_photos(req: SearchRequest):
 
     # 2️⃣ Ask Gemini which objects/emotions match query
     matched_labels = find_matches(query, list(all_objects), list(all_emotions))
+    print("matched labels by gemini are:", matched_labels)
 
     # 3️⃣ Filter photos: keep those that have at least one matching label
     filtered_photos = []

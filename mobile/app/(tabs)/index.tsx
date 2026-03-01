@@ -26,6 +26,7 @@ export default function CameraRollScreen() {
   const [stage, setStage] = useState<"idle" | "clearing" | "uploading" | "processing" | "ready">("idle");
   const [filter, setFilter] = useState<string[]>([]);
   const photoIdRef = useRef<Record<string, string>>({});
+  const [isSearchLoading, setIsSearchLoading] = useState(false);
 
   useEffect(() => {
     loadAndIndex();
@@ -174,6 +175,7 @@ export default function CameraRollScreen() {
     }
 
     try {
+      setIsSearchLoading(true);
       const response = await fetch(`${API_BASE}/search/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -196,6 +198,8 @@ export default function CameraRollScreen() {
       // Fail silently, filter won't update
       console.error("[search] failed:", e);
     }
+
+    setIsSearchLoading(false);
   }
 
   return (
@@ -221,7 +225,7 @@ export default function CameraRollScreen() {
         photoIdMap={photoIdRef.current}
       />
 
-      <SearchBar onSearch={handleSearch} />
+      <SearchBar onSearch={handleSearch} searching={isSearchLoading} />
     </KeyboardAvoidingView>
   );
 }

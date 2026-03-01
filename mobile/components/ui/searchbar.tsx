@@ -2,7 +2,7 @@ import { View, TextInput, Pressable, StyleSheet } from "react-native";
 import { IconSymbol } from "./icon-symbol";
 import { useState } from "react";
 
-export default function SearchBar({ onSearch }: { onSearch: (text: string) => void }) {
+export default function SearchBar({ onSearch, searching }: { onSearch: (text: string) => void, searching: boolean }) {
     const [textValue, setTextValue] = useState("");
 
     return (
@@ -21,8 +21,9 @@ export default function SearchBar({ onSearch }: { onSearch: (text: string) => vo
                     styles.searchButton,
                     { opacity: pressed ? 0.6 : 1 }
                 ]}
+                disabled={searching}
             >
-                <IconSymbol size={14} name="magnifyingglass" color={"#666"} />
+                <IconSymbol size={14} name={searching ? "hourglass" : "magnifyingglass"} color={"#666"} />
             </Pressable>
         </View>
     );
